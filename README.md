@@ -18,19 +18,19 @@
 
 ## How do I use it
 
-Firstly you need a series that is available online in the supported sites that YouTube-DL can grab from.
-Secondly you need to add this to Sonarr and monitor the episodes that you want.
-Thirdly edit your config.yml accordingly so that this knows where your Sonarr is, which series you are after and where to grab it from.
-Lastly be aware that this requires the TVDB to match exactly what the episodes titles are in the scan, generally this is ok but as its an openly editable site sometime there can be differences.
+1. Firstly you need a series that is available online in the supported sites that YouTube-DL can grab from.
+1. Secondly you need to add this to Sonarr and monitor the episodes that you want.
+1. Thirdly edit your config.yml accordingly so that this knows where your Sonarr is, which series you are after and where to grab it from.
+1. Lastly be aware that this requires the TVDB to match exactly what the episodes titles are in the scan, generally this is ok but as its an openly editable site sometime there can be differences.
 
 ## Supported Architectures
 
-The architectures supported by this image are:
+The following **Linux** architectures supported by this image are:
 
-| Architecture | Tag |
+| Architectures | Tag |
 | :----: | --- |
-| x86-64 | latest |
-| x86-64 | dev |
+| 386<br>amd64<br>armv7<br>arm64 | latest |
+| 386<br>amd64<br>armv7<br>arm64  | dev |
 
 ## Version Tags
 
@@ -38,6 +38,7 @@ The architectures supported by this image are:
 | :----: | --- |
 | latest | Current release code |
 | dev | Pre-release code for testing issues |
+| v.X.Y.Z | Versions matching [GitHub Releases](https://github.com/ryakel/sonarr-yt-dlp/releases) |
 
 ## Great how do I get started
 
@@ -47,12 +48,12 @@ Obviously its a docker image so you need docker, if you don't know what that is 
 
 ```bash
 docker create \
-  --name=sonarr_youtubedl \
+  --name=sonarr-yt-dlp \
   -v /path/to/data:/config \
   -v /path/to/sonarrmedia:/sonarr_root \
   -v /path/to/logs:/logs \
   --restart unless-stopped \
-  whatdaybob/sonarr_youtubedl
+  ryakel/sonarr-yt-dlp
 ```
 
 ### docker-compose
@@ -61,20 +62,26 @@ docker create \
 ---
 version: '3.4'
 services:
-  sonarr_youtubedl:
-    image: whatdaybob/sonarr_youtubedl
-    container_name: sonarr_youtubedl
+  sonarr-yt-dlp:
+    image: ryakel/sonarr-yt-dlp
+    container_name: sonarr-yt-dlp
     volumes:
       - /path/to/data:/config
       - /path/to/sonarrmedia:/sonarr_root
       - /path/to/logs:/logs
+    healthcheck:
+      test: curl --fail https://youtube.com || exit 1
+      interval: 5s
+      retries: 5
+      start_period: 20s
+      timeout: 10s
 ```
 
 ### Docker volumes
 
 | Parameter | Function |
 | :----: | --- |
-| `-v /config` | sonarr_youtubedl configs |
+| `-v /config` | sonarr-yt-dlp configs |
 | `-v /sonarr_root` | Root library location from Sonarr container |
 | `-v /logs` | log location |
 
