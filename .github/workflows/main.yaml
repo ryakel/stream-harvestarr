@@ -42,7 +42,22 @@ jobs:
           else
             DOCKER_TAG="${GITHUB_REF:11}"
           fi
-          echo "tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT 
+          echo "tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT
+
+      # https://github.com/mathieudutour/github-tag-action 
+      - name: Bump version and push tag
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # https://github.com/ncipollo/release-action 
+      - name: Create a GitHub release
+        uses: ncipollo/release-action@v1.12.0
+        with:
+          tag: ${{ steps.tag_version.outputs.new_tag }}
+          name: Release ${{ steps.tag_version.outputs.new_tag }}
+          body: ${{ steps.tag_version.outputs.changelog }} 
 
       # https://github.com/docker/setup-qemu-action
       - name: Set up QEMU
@@ -63,7 +78,8 @@ jobs:
           file: ./Dockerfile
           platforms: linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8
           tags: |
-            ${{ secrets.DOCKER_USERNAME }}/sonarr_yt-dlp:${{ steps.tag.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/sonarr-yt-dlp:${{ steps.tag.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/sonarr-yt-dlp:${{ steps.tag_version.outputs.new_tag }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
