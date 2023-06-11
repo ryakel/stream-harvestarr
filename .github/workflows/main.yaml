@@ -44,6 +44,7 @@ jobs:
 
       # https://github.com/mathieudutour/github-tag-action 
       - name: Bump version and push tag
+        if: github.ref == 'refs/heads/main'
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.1
         with:
@@ -51,6 +52,7 @@ jobs:
 
       # https://github.com/ncipollo/release-action 
       - name: Create a GitHub release
+        if: github.ref == 'refs/heads/main'
         uses: ncipollo/release-action@v1.12.0
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
