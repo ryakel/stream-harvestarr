@@ -1,12 +1,12 @@
-name: Docker
+name: Cron
 
 on:
   schedule:
-    - cron: '15 23 * * 2'
+    - cron: '15 06 * * 3'
 
 jobs:
   docker:
-    name: Docker
+    name: Cron
     runs-on: ubuntu-latest
     defaults:
       run:
