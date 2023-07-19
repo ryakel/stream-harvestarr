@@ -1,0 +1,96 @@
+name: Docker
+
+on:
+  schedule:
+    - cron: '15 23 * * 2'
+
+jobs:
+  docker:
+    name: Docker
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+
+      # https://github.com/marketplace/actions/checkout
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      # https://github.com/docker/login-action#docker-hub
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Set Docker Tag
+        id: tag
+        run: |
+          if [[ $GITHUB_REF == refs/heads/development ]]; then
+            DOCKER_TAG="dev"
+          elif [[ $GITHUB_REF == refs/heads/main ]]; then
+            DOCKER_TAG="latest"
+          else
+            DOCKER_TAG="${GITHUB_REF:11}"
+          fi
+          echo "tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT
+
+      # https://github.com/mathieudutour/github-tag-action 
+      - name: Bump version and push tag
+        if: github.ref == 'refs/heads/main'
+        id: tag_version
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      # https://github.com/ncipollo/release-action 
+      - name: Create a GitHub release
+        if: github.ref == 'refs/heads/main'
+        uses: ncipollo/release-action@v1.12.0
+        with:
+          tag: ${{ steps.tag_version.outputs.new_tag }}
+          name: Release ${{ steps.tag_version.outputs.new_tag }}
+          body: ${{ steps.tag_version.outputs.changelog }} 
+
+      # https://github.com/docker/setup-qemu-action
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      # https://github.com/docker/setup-buildx-action
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      # https://github.com/docker/build-push-action
+      - name: Build and Push Dev Docker Image
+        if: github.ref == 'refs/heads/development' || startsWith(github.ref, 'refs/tags/')
+        id: docker_build_dev
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          file: ./Dockerfile
+          platforms: linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/sonarr-yt-dlp:${{ steps.tag.outputs.tag }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # https://github.com/docker/build-push-action
+      - name: Build and Push Main Docker Image
+        if: github.ref == 'refs/heads/main'
+        id: docker_build_main
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          file: ./Dockerfile
+          platforms: linux/386,linux/amd64,linux/arm/v7,linux/arm64/v8
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/sonarr-yt-dlp:${{ steps.tag.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/sonarr-yt-dlp:${{ steps.tag_version.outputs.new_tag }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
