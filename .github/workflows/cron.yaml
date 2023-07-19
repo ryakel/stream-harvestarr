@@ -1,4 +1,4 @@
-name: Docker
+name: Cron
 
 on:
   schedule:
