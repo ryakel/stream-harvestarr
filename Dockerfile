@@ -7,7 +7,7 @@ COPY requirements.txt requirements.txt
 # Update and install ffmpeg and requirements
 RUN apk update --no-cache && \
     apk upgrade --no-cache && \
-    apk add --no-cache ffmpeg curl && \
+    apk add --no-cache ffmpeg curl gcc && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt
 
@@ -33,7 +33,9 @@ RUN \
     /app/sonarr_youtubedl.py \
     /app/utils.py \
     /app/config.yml.template && \
-    cp /app/config.yml.template /config/config.yml
+    cp /app/config.yml.template /config/config.yml && \
+# clean up container
+    apk del gcc
 
 # ENV setup
 ENV CONFIGPATH /config/config.yml
