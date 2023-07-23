@@ -1,29 +1,23 @@
-FROM python:3.11-slim-bullseye
+FROM python:3.11-alpine
 LABEL maintainer="github.com/ryakel"
 
 # Copy requirements
 COPY requirements.txt requirements.txt
 
 # Update and install ffmpeg and requirements
-RUN apt update && \
-    apt upgrade -y && \
-    apt install -y gcc g++ ffmpeg fontconfig wget lbzip2 libssl1.1 libssl-dev libfreetype6 libfreetype6-dev libfontconfig1 libfontconfig1-dev && \
-    pip install --upgrade pip && \
+RUN apk update --no-cache && \
+    apk upgrade --no-cache && \
+    apk add --no-cache ffmpeg curl alpine-sdk && \
+    pip3 install --upgrade pip && \
     pip3 install -r requirements.txt
 
 # create abc user so root isn't used
-RUN \
-	groupmod -g 1000 users && \
-	useradd -u 911 -U -d /config -s /bin/false abc && \
-	usermod -G users abc && \
+RUN addgroup -g 1000 ytdlpg && \
+	adduser -u 911 -h /config -s /bin/false ytdlp -D && \
+	addgroup ytdlp ytdlpg && \
 # create necessary files / folders
 	mkdir -p /config /app /sonarr_root /logs && \
-	touch /var/lock/sonarr_youtube.lock && \
-    wget https://bitbucket.org/ariya/phantomjs/downloads/phantomjs-2.1.1-linux-x86_64.tar.bz2 && \
-    tar xf phantomjs-2.1.1-linux-x86_64.tar.bz2 && \
-    mv phantomjs-2.1.1-linux-x86_64/bin/phantomjs /usr/local/bin/phantomjs && \
-    rm -rf phantomjs-2.1.1-linux-x86_64* && \
-    sed -e '/ssl_conf = ssl_sect/ s/^#*/#/' -i /etc/ssl/openssl.cnf
+	touch /var/lock/sonarr_youtube.lock
 
 # add volumes
 VOLUME /config
@@ -39,11 +33,9 @@ RUN \
     /app/sonarr_youtubedl.py \
     /app/utils.py \
     /app/config.yml.template && \
-# clean up the container
-    apt-get remove g++ gcc wget lbzip2 -y && \
-    apt-get autoremove -y && \
-    apt-get clean -y && \
-    apt-get install curl -y 
+    cp /app/config.yml.template /config/config.yml && \
+# clean up container
+    apk del alpine-sdk
 
 # ENV setup
 ENV CONFIGPATH /config/config.yml
