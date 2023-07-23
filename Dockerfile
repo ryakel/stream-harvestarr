@@ -7,7 +7,7 @@ COPY requirements.txt requirements.txt
 # Update and install ffmpeg and requirements
 RUN apk update --no-cache && \
     apk upgrade --no-cache && \
-    apk add --no-cache ffmpeg curl gcc && \
+    apk add --no-cache ffmpeg curl alpine-sdk && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt
 
@@ -35,7 +35,7 @@ RUN \
     /app/config.yml.template && \
     cp /app/config.yml.template /config/config.yml && \
 # clean up container
-    apk del gcc
+    apk del alpine-sdk
 
 # ENV setup
 ENV CONFIGPATH /config/config.yml
