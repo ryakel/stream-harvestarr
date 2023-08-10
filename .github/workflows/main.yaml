@@ -8,11 +8,7 @@ on:
       - development
     tags:
       - "*"
-    paths-ignore:
-      - 'workflows/**'
-      - '**.md'
-    
-
+      
 jobs:
   docker:
     name: Docker
