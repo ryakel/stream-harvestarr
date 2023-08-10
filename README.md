@@ -95,4 +95,10 @@ On first run the docker will create a template file in the config folder. Exampl
 
 Copy the `config.yml.template` to a new file called `config.yml` and edit accordingly.
 
-Credit to [@whatdaybob](https://github.com/whatdaybob/sonarr_youtubedl) who's great work this is forked from.
+If you found this helpful, please consider donating below.
+
+<!-- markdownlint-disable MD033 -->
+<a href="https://www.buymeacoffee.com/ryakel" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/lato-black.png" alt="Buy Me A Coffee" style="height: 51px !important;width: 217px !important;" ></a>
+<!-- markdownlint-enable MD033 -->
+
+Credit to [@whatdaybob](https://github.com/whatdaybob/sonarr_youtubedl) for the original code.

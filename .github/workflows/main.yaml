@@ -8,7 +8,7 @@ on:
       - development
     tags:
       - "*"
-
+      
 jobs:
   docker:
     name: Docker
