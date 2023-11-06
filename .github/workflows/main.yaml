@@ -8,7 +8,11 @@ on:
       - development
     tags:
       - "*"
-      
+
+permissions:
+  contents: read
+  actions: write  
+
 jobs:
   docker:
     name: Docker
@@ -41,6 +45,14 @@ jobs:
             DOCKER_TAG="${GITHUB_REF:11}"
           fi
           echo "tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT
+
+      # https://github.com/MyAlbum/purge-cache
+      - name: Purge Build Cache
+        uses: MyAlbum/purge-cache@v2
+        with:
+          accessed: false # Purge caches by their last accessed time (default: true)
+          created: true # Purge caches by their created time (default: false)
+          max-age: 86400 # Leave only caches accessed/created in the last 1 day (default: 604800 - 7 days)
 
       # https://github.com/mathieudutour/github-tag-action 
       - name: Bump version and push tag
