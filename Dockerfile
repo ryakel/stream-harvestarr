@@ -11,7 +11,7 @@ RUN apk update --no-cache && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt
 
-# create abc user so root isn't used
+# create ytdlp user so root isn't used
 RUN addgroup -g 1000 ytdlpg && \
 	adduser -u 911 -h /config -s /bin/false ytdlp -D && \
 	addgroup ytdlp ytdlpg && \
