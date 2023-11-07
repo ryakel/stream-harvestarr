@@ -1,0 +1,23 @@
+name: Purge Cache
+
+on:
+  workflow_dispatch:
+
+permissions: 
+  actions: write
+
+jobs:
+  purge-cache:
+    name: Purge Cache
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+
+      # https://github.com/MyAlbum/purge-cache
+      - name: Purge Build Cache
+        uses: MyAlbum/purge-cache@v2
+        with:
+          debug: true # turn on debug logging (default: false)
+          max-age: 5400 # Leave only caches accessed/created in the last 90 minutes (default: 604800 - 7 days)
