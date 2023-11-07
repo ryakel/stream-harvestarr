@@ -8,11 +8,7 @@ on:
       - development
     tags:
       - "*"
-
-permissions:
-  contents: read
-  actions: write  
-
+      
 jobs:
   docker:
     name: Docker
