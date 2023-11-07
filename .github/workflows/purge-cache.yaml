@@ -3,9 +3,6 @@ name: Purge Cache
 on:
   workflow_dispatch:
 
-permissions: 
-  actions: write
-
 jobs:
   purge-cache:
     name: Purge Cache
