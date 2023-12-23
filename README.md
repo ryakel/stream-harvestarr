@@ -29,12 +29,15 @@ The following **Linux** architectures supported by this image are:
 
 | Architectures | Tag |
 | :----: | --- |
-| 386<br>amd64<br>armv7<br>arm64 | latest |
-| 386<br>amd64<br>armv7<br>arm64  | dev |
+| 386<br>amd64 | latest |
+| 386<br>amd64 | dev |
+| armv7 (deprecated)<br>arm64 (deprecated) | ≤ 0.3.30 |
+
+:warning: ARM builds have been deprecated as of v0.3.30. No further development is expected on them going forward. :warning:
 
 ## Version Tags
 
-| Tag | Description |
+| Tag | Desc⚠️ription |
 | :----: | --- |
 | latest | Current release code |
 | dev | Pre-release code for testing issues |
