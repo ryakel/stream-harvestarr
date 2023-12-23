@@ -1,4 +1,4 @@
-FROM python:3.19-alpine
+FROM python:3.12-alpine
 LABEL maintainer="github.com/ryakel"
 
 # Copy requirements
