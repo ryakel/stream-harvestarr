@@ -37,7 +37,7 @@ The following **Linux** architectures supported by this image are:
 
 ## Version Tags
 
-| Tag | Desc⚠️ription |
+| Tag | Description |
 | :----: | --- |
 | latest | Current release code |
 | dev | Pre-release code for testing issues |
