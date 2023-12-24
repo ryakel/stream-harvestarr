@@ -33,7 +33,8 @@ The following **Linux** architectures supported by this image are:
 | 386<br>amd64 | dev |
 | armv7 (deprecated)<br>arm64 (deprecated) | ≤ 0.3.30 |
 
-:warning: ARM builds have been deprecated as of v0.3.30. No further development is expected on them going forward. :warning:
+:warning: ARM builds have been deprecated as of v0.3.30.<br> 
+No further development is expected on them going forward. :warning:
 
 ## Version Tags
 
