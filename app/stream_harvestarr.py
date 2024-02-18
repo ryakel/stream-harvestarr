@@ -32,13 +32,15 @@ class StreamHarvester(object):
     def __init__(self):
         """Set up app with config file settings"""
         cfg = checkconfig()
+        # Set config key for backwards compatibility in config.yml
+        config_key = 'sonarrytdl' if 'sonarrytdl' in cfg else 'streamharvestarr'
+        self.config_section = cfg[config_key]
 
         # Stream Harvestarr Setup
-
         try:
-            self.set_scan_interval(cfg['streamharvestarr']['scan_interval'])
+            self.set_scan_interval(self.config_section['scan_interval'])
             try:
-                self.debug = cfg['streamharvestarr']['debug'] in ['true', 'True']
+                self.debug = self.config_section['debug'] in ['true', 'True']
                 if self.debug:
                     logger.setLevel(logging.DEBUG)
                     for logs in logger.handlers:
