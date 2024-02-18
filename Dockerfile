@@ -40,4 +40,4 @@ RUN \
 # ENV setup
 ENV CONFIGPATH /config/config.yml
 
-CMD [ "python", "-u", "/app/sstream_harvestarr.py" ]
+CMD [ "python", "-u", "/app/stream_harvestarr.py" ]
