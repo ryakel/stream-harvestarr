@@ -180,7 +180,7 @@ class StreamHarvester(object):
         return res.json()
 
     def filterseries(self):
-        """Return all series in Sonarr that are to be downloaded by youtube-dl"""
+        """Return all series in Sonarr that are to be downloaded by yt-dlp"""
         series = self.get_series()
         matched = []
         for ser in series[:]:
@@ -264,8 +264,8 @@ class StreamHarvester(object):
 
     def appendcookie(self, ytdlopts, cookies=None):
         """Checks if specified cookie file exists in config
-        - ``ytdlopts``: Youtube-dl options to append cookie to
-        - ``cookies``: filename of cookie file to append to Youtube-dl opts
+        - ``ytdlopts``: yt-dlp options to append cookie to
+        - ``cookies``: filename of cookie file to append to yt-dlp opts
         returns:
             ytdlopts
                 original if problem with cookies file
@@ -288,7 +288,7 @@ class StreamHarvester(object):
 
     def customformat(self, ytdlopts, customformat=None):
         """Checks if specified cookie file exists in config
-        - ``ytdlopts``: Youtube-dl options to change the ytdl format for
+        - ``ytdlopts``: yt-dlp options to change the ytdl format for
         - ``customformat``: format to download
         returns:
             ytdlopts
@@ -319,7 +319,7 @@ class StreamHarvester(object):
             })
         ytdlopts = self.appendcookie(ytdlopts, cookies)
         if self.debug is True:
-            logger.debug('Youtube-DL opts used for episode matching')
+            logger.debug('yt-dlp opts used for episode matching')
             logger.debug(ytdlopts)
         return ytdlopts
 
@@ -406,7 +406,7 @@ class StreamHarvester(object):
                                     'logger': YoutubeDLLogger(),
                                     'progress_hooks': [ytdl_hooks_debug],
                                 })
-                                logger.debug('Youtube-DL opts used for downloading')
+                                logger.debug('yt-dlp opts used for downloading')
                                 logger.debug(ytdl_format_options)
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
