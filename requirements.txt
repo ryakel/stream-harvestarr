@@ -1,4 +1,4 @@
 requests>=2.31.0
-yt-dlp>=2023.11.16
+yt-dlp>=2023.12.30
 pyyaml>=6.0.1
 schedule>=1.2.1
