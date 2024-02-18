@@ -66,6 +66,7 @@ jobs:
           platforms: linux/386,linux/amd64
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/sonarr-yt-dlp:${{ steps.tag.outputs.tag }}
+            ${{ secrets.DOCKER_USERNAME }}/stream-harvestarr:${{ steps.tag.outputs.tag }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

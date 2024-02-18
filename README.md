@@ -1,3 +1,4 @@
+![Screen Harvester logo](/img/stream-harvestarr-logo_small.png)
 # Stream Harvestarr by [@ryakel](https://github.com/ryakel)
 
 ![Docker Build](https://img.shields.io/docker/cloud/automated/ryakel/stream-harvestarr?style=flat-square)

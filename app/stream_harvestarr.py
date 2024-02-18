@@ -27,7 +27,7 @@ CONFIGPATH = CONFIGFILE.replace('config.yml', '')
 SCANINTERVAL = 60
 
 
-class SonarrYTDL(object):
+class StreamHarvester(object):
 
     def __init__(self):
         """Set up app with config file settings"""
@@ -36,9 +36,9 @@ class SonarrYTDL(object):
         # Stream Harvestarr Setup
 
         try:
-            self.set_scan_interval(cfg['sonarrytdl']['scan_interval'])
+            self.set_scan_interval(cfg['streamharvestarr']['scan_interval'])
             try:
-                self.debug = cfg['sonarrytdl']['debug'] in ['true', 'True']
+                self.debug = cfg['streamharvestarr']['debug'] in ['true', 'True']
                 if self.debug:
                     logger.setLevel(logging.DEBUG)
                     for logs in logger.handlers:
@@ -50,7 +50,7 @@ class SonarrYTDL(object):
             except AttributeError:
                 self.debug = False
         except Exception:
-            sys.exit("Error with sonarrytdl config.yml values.")
+            sys.exit("Error with streamharvestarr config.yml values.")
 
         # Sonarr Setup
         try:
@@ -429,7 +429,7 @@ class SonarrYTDL(object):
 
 
 def main():
-    client = SonarrYTDL()
+    client = StreamHarvester()
     series = client.filterseries()
     episodes = client.getseriesepisodes(series)
     client.download(series, episodes)
