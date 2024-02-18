@@ -33,7 +33,7 @@ class SonarrYTDL(object):
         """Set up app with config file settings"""
         cfg = checkconfig()
 
-        # Sonarr_YTDL Setup
+        # Stream Harvestarr Setup
 
         try:
             self.set_scan_interval(cfg['sonarrytdl']['scan_interval'])
