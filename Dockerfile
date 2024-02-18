@@ -9,9 +9,7 @@ RUN apk update --no-cache && \
     apk upgrade --no-cache && \
     apk add --no-cache ffmpeg curl alpine-sdk && \
     pip3 install --upgrade pip && \
-    pip3 install -r requirements.txt && \
-    apk update --no-cache && \
-    apk upgrade --no-cache
+    pip3 install -r requirements.txt
 
 # create ytdlp user so root isn't used
 RUN addgroup -g 1000 ytdlpg && \
