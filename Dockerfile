@@ -1,5 +1,6 @@
 FROM python:3.12-alpine
 LABEL maintainer="github.com/ryakel"
+LABEL org.opencontainers.image.source="https://github.com/ryakel/stream-harvestarr"
 
 # Copy requirements
 COPY requirements.txt requirements.txt
