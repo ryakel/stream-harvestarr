@@ -1,11 +1,17 @@
-# sonarr-yt-dlp by [@ryakel](https://github.com/ryakel)
+![Screen Harvester logo](/img/stream-harvestarr-logo_small.png)
+# Stream Harvestarr by [@ryakel](https://github.com/ryakel)
 
-![Docker Build](https://img.shields.io/docker/cloud/automated/ryakel/sonarr-yt-dlp?style=flat-square)
-![Docker Pulls](https://img.shields.io/docker/pulls/ryakel/sonarr-yt-dlp?style=flat-square)
-![Docker Stars](https://img.shields.io/docker/stars/ryakel/sonarr-yt-dlp?style=flat-square)
-[![Docker Hub](https://img.shields.io/badge/Open%20On-DockerHub-blue)](https://hub.docker.com/r/ryakel/sonarr-yt-dlp)
+![Docker Build](https://img.shields.io/docker/cloud/automated/ryakel/stream-harvestarr?style=flat-square)
+![Docker Pulls](https://img.shields.io/docker/pulls/ryakel/stream-harvestarr?style=flat-square)
+![Docker Stars](https://img.shields.io/docker/stars/ryakel/stream-harvestarr?style=flat-square)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Docker Hub](https://img.shields.io/badge/Open%20On-DockerHub-blue)](https://hub.docker.com/r/ryakel/stream-harvestarr)
 
-[ryakel/sonarr-yt-dlp](https://github.com/ryakel/sonarr-yt-dlp) is a [Sonarr](https://sonarr.tv/) companion script to allow the automatic downloading of web series normally not available for Sonarr to search for. Using [YT-DLP](https://github.com/yt-dlp/yt-dlp) (a youtube-dl fork with added features) it allows you to download your webseries from the list of [supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
+:warning: NOTE: The image name and repo have changed to ```ryakel/stream-havestarr```. 
+```ryakel/sonarr-yt-dlp``` will continue to be updated for now, but will be deprecated in the near future. 
+Please update your image and update your config.yml. :warning:
+
+[ryakel/stream-harvestarr](https://github.com/ryakel/stream-harvestarr) is a [Sonarr](https://sonarr.tv/) companion script to allow the automatic downloading of web series normally not available for Sonarr to search for. Using [YT-DLP](https://github.com/yt-dlp/yt-dlp) (a youtube-dl fork with added features) it allows you to download your webseries from the list of [supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
 ## Features
 
@@ -42,7 +48,7 @@ No further development is expected on them going forward. :warning:
 | :----: | --- |
 | latest | Current release code |
 | dev | Pre-release code for testing issues |
-| v.X.Y.Z | Versions matching [GitHub Releases](https://github.com/ryakel/sonarr-yt-dlp/releases) |
+| v.X.Y.Z | Versions matching [GitHub Releases](https://github.com/ryakel/stream-harvestarr/releases) |
 
 ## Great how do I get started
 
@@ -52,12 +58,12 @@ Obviously its a docker image so you need docker, if you don't know what that is 
 
 ```bash
 docker create \
-  --name=sonarr-yt-dlp \
+  --name=stream-harvestarr \
   -v /path/to/data:/config \
   -v /path/to/sonarrmedia:/sonarr_root \
   -v /path/to/logs:/logs \
   --restart unless-stopped \
-  ryakel/sonarr-yt-dlp
+  ryakel/stream-harvestarr
 ```
 
 ### docker-compose
@@ -66,9 +72,9 @@ docker create \
 ---
 version: '3.4'
 services:
-  sonarr-yt-dlp:
-    image: ryakel/sonarr-yt-dlp
-    container_name: sonarr-yt-dlp
+  stream-harvestarr:
+    image: ryakel/stream-harvestarr
+    container_name: stream-harvestarr
     volumes:
       - /path/to/data:/config
       - /path/to/sonarrmedia:/sonarr_root
@@ -85,7 +91,7 @@ services:
 
 | Parameter | Function |
 | :----: | --- |
-| `-v /config` | sonarr-yt-dlp configs |
+| `-v /config` | Stream Harvestarr configs |
 | `-v /sonarr_root` | Root library location from Sonarr container |
 | `-v /logs` | log location |
 

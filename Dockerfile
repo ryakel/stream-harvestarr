@@ -1,5 +1,6 @@
 FROM python:3.12-alpine
 LABEL maintainer="github.com/ryakel"
+LABEL org.opencontainers.image.source="https://github.com/ryakel/stream-harvestarr"
 
 # Copy requirements
 COPY requirements.txt requirements.txt
@@ -30,7 +31,7 @@ COPY app/ /app
 # update file permissions
 RUN \
     chmod a+x \
-    /app/sonarr_youtubedl.py \
+    /app/stream_harvestarr.py \
     /app/utils.py \
     /app/config.yml.template && \
     cp /app/config.yml.template /config/config.yml && \
@@ -40,4 +41,4 @@ RUN \
 # ENV setup
 ENV CONFIGPATH /config/config.yml
 
-CMD [ "python", "-u", "/app/sonarr_youtubedl.py" ]
+CMD [ "python", "-u", "/app/stream_harvestarr.py" ]

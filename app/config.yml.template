@@ -1,4 +1,4 @@
-sonarrytdl:
+streamharvestarr:
     scan_interval: 1  # minutes between scans
     debug: False  # Set to True for a more verbose output
 sonarr:

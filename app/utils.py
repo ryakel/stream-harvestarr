@@ -54,7 +54,7 @@ def checkconfig():
 
         `cfg`: dict containing configuration values
     """
-    logger = logging.getLogger('sonarr_youtubedl')
+    logger = logging.getLogger('stream_harvestarr')
     config_template = os.path.abspath(CONFIGFILE + '.template')
     config_template_exists = os.path.exists(os.path.abspath(config_template))
     config_file = os.path.abspath(CONFIGFILE)
@@ -105,7 +105,7 @@ def offsethandler(airdate, offset):
 class YoutubeDLLogger(object):
 
     def __init__(self):
-        self.logger = logging.getLogger('sonarr_youtubedl')
+        self.logger = logging.getLogger('stream_harvestarr')
 
     def info(self, msg: str) -> None:
         self.logger.info(msg)
@@ -121,7 +121,7 @@ class YoutubeDLLogger(object):
 
 
 def ytdl_hooks_debug(d):
-    logger = logging.getLogger('sonarr_youtubedl')
+    logger = logging.getLogger('stream_harvestarr')
     if d['status'] == 'finished':
         file_tuple = os.path.split(os.path.abspath(d['filename']))
         logger.info("      Done downloading {}".format(file_tuple[1]))  # print("Done downloading {}".format(file_tuple[1]))
@@ -131,7 +131,7 @@ def ytdl_hooks_debug(d):
 
 
 def ytdl_hooks(d):
-    logger = logging.getLogger('sonarr_youtubedl')
+    logger = logging.getLogger('stream_harvestarr')
     if d['status'] == 'finished':
         file_tuple = os.path.split(os.path.abspath(d['filename']))
         logger.info("      Downloaded - {}".format(file_tuple[1]))
@@ -139,14 +139,14 @@ def ytdl_hooks(d):
 def setup_logging(lf_enabled=True, lc_enabled=True, debugging=False):
     log_level = logging.INFO
     log_level = logging.DEBUG if debugging is True else log_level
-    logger = logging.getLogger('sonarr_youtubedl')
+    logger = logging.getLogger('stream_harvestarr')
     logger.setLevel(log_level)
     log_format = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
     if lf_enabled:
         # setup logfile
         log_file = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'logs'))
-        log_file = os.path.abspath(log_file + '/sonarr_youtubedl.log')
+        log_file = os.path.abspath(log_file + '/stream_harvestarr.log')
         loggerfile = RotatingFileHandler(
             log_file,
             maxBytes=5000000,

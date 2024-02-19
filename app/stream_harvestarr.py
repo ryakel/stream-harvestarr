@@ -27,18 +27,20 @@ CONFIGPATH = CONFIGFILE.replace('config.yml', '')
 SCANINTERVAL = 60
 
 
-class SonarrYTDL(object):
+class StreamHarvester(object):
 
     def __init__(self):
         """Set up app with config file settings"""
         cfg = checkconfig()
+        # Set config key for backwards compatibility in config.yml
+        config_key = 'sonarrytdl' if 'sonarrytdl' in cfg else 'streamharvestarr'
+        self.config_section = cfg[config_key]
 
-        # Sonarr_YTDL Setup
-
+        # Stream Harvestarr Setup
         try:
-            self.set_scan_interval(cfg['sonarrytdl']['scan_interval'])
+            self.set_scan_interval(self.config_section['scan_interval'])
             try:
-                self.debug = cfg['sonarrytdl']['debug'] in ['true', 'True']
+                self.debug = self.config_section['debug'] in ['true', 'True']
                 if self.debug:
                     logger.setLevel(logging.DEBUG)
                     for logs in logger.handlers:
@@ -50,7 +52,7 @@ class SonarrYTDL(object):
             except AttributeError:
                 self.debug = False
         except Exception:
-            sys.exit("Error with sonarrytdl config.yml values.")
+            sys.exit("Error with streamharvestarr config.yml values.")
 
         # Sonarr Setup
         try:
@@ -178,7 +180,7 @@ class SonarrYTDL(object):
         return res.json()
 
     def filterseries(self):
-        """Return all series in Sonarr that are to be downloaded by youtube-dl"""
+        """Return all series in Sonarr that are to be downloaded by yt-dlp"""
         series = self.get_series()
         matched = []
         for ser in series[:]:
@@ -262,8 +264,8 @@ class SonarrYTDL(object):
 
     def appendcookie(self, ytdlopts, cookies=None):
         """Checks if specified cookie file exists in config
-        - ``ytdlopts``: Youtube-dl options to append cookie to
-        - ``cookies``: filename of cookie file to append to Youtube-dl opts
+        - ``ytdlopts``: yt-dlp options to append cookie to
+        - ``cookies``: filename of cookie file to append to yt-dlp opts
         returns:
             ytdlopts
                 original if problem with cookies file
@@ -286,7 +288,7 @@ class SonarrYTDL(object):
 
     def customformat(self, ytdlopts, customformat=None):
         """Checks if specified cookie file exists in config
-        - ``ytdlopts``: Youtube-dl options to change the ytdl format for
+        - ``ytdlopts``: yt-dlp options to change the ytdl format for
         - ``customformat``: format to download
         returns:
             ytdlopts
@@ -317,7 +319,7 @@ class SonarrYTDL(object):
             })
         ytdlopts = self.appendcookie(ytdlopts, cookies)
         if self.debug is True:
-            logger.debug('Youtube-DL opts used for episode matching')
+            logger.debug('yt-dlp opts used for episode matching')
             logger.debug(ytdlopts)
         return ytdlopts
 
@@ -404,7 +406,7 @@ class SonarrYTDL(object):
                                     'logger': YoutubeDLLogger(),
                                     'progress_hooks': [ytdl_hooks_debug],
                                 })
-                                logger.debug('Youtube-DL opts used for downloading')
+                                logger.debug('yt-dlp opts used for downloading')
                                 logger.debug(ytdl_format_options)
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
@@ -429,7 +431,7 @@ class SonarrYTDL(object):
 
 
 def main():
-    client = SonarrYTDL()
+    client = StreamHarvester()
     series = client.filterseries()
     episodes = client.getseriesepisodes(series)
     client.download(series, episodes)
