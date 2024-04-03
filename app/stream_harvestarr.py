@@ -309,6 +309,7 @@ class StreamHarvester(object):
             'playlistreverse': playlistreverse,
             'matchtitle': regextitle,
             'quiet': True,
+            'match-filter': '!is_short & !url =~ /shorts/',  # Exclude YouTube Shorts
 
         }
         if self.debug is True:
