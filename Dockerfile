@@ -17,7 +17,7 @@ RUN addgroup -g 1000 ytdlpg && \
 	adduser -u 911 -h /config -s /bin/false ytdlp -D && \
 	addgroup ytdlp ytdlpg && \
 # create necessary files / folders
-	mkdir -p /config /app /sonarr_root /logs && \
+	mkdir -p /config /app /sonarr_root /logs /run/lock && \
 	touch /var/lock/sonarr_youtube.lock
 
 # add volumes
