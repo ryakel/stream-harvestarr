@@ -1,14 +1,13 @@
 ![Screen Harvester logo](/img/stream-harvestarr-logo_small.png)
 # Stream Harvestarr by [@ryakel](https://github.com/ryakel)
 
-![Docker Build](https://img.shields.io/docker/cloud/automated/ryakel/stream-harvestarr?style=flat-square)
 ![Docker Pulls](https://img.shields.io/docker/pulls/ryakel/stream-harvestarr?style=flat-square)
 ![Docker Stars](https://img.shields.io/docker/stars/ryakel/stream-harvestarr?style=flat-square)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Docker Hub](https://img.shields.io/badge/Open%20On-DockerHub-blue)](https://hub.docker.com/r/ryakel/stream-harvestarr)
 
 :warning: NOTE: The image name and repo have changed to ```ryakel/stream-havestarr```. 
-```ryakel/sonarr-yt-dlp``` will continue to be updated for now, but will be deprecated in the near future. 
+```ryakel/sonarr-yt-dlp``` has been deprecated as of version ```1.2.17```. 
 Please update your image and update your config.yml. :warning:
 
 [ryakel/stream-harvestarr](https://github.com/ryakel/stream-harvestarr) is a [Sonarr](https://sonarr.tv/) companion script to allow the automatic downloading of web series normally not available for Sonarr to search for. Using [YT-DLP](https://github.com/yt-dlp/yt-dlp) (a youtube-dl fork with added features) it allows you to download your webseries from the list of [supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
