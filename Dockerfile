@@ -1,4 +1,4 @@
-FROM python:3.12-alpine
+FROM python:3.13-alpine
 LABEL maintainer="github.com/ryakel"
 LABEL org.opencontainers.image.source="https://github.com/ryakel/stream-harvestarr"
 
