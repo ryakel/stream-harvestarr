@@ -81,7 +81,7 @@ jobs:
           sbom: true
           provenance: mode=max
           file: ./Dockerfile
-          platforms: linux/386,linux/amd64
+          platforms: linux/arm/v7,linux/arm64,linux/386,linux/amd64
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/stream-harvestarr:${{ steps.tag.outputs.tag }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -99,7 +99,7 @@ jobs:
           sbom: true
           provenance: mode=max
           file: ./Dockerfile
-          platforms: linux/386,linux/amd64
+          platforms: linux/arm/v7,linux/arm64,linux/386,linux/amd64
           tags: |
             ${{ secrets.DOCKER_USERNAME }}/stream-harvestarr:${{ steps.tag.outputs.tag }}
             ${{ secrets.DOCKER_USERNAME }}/stream-harvestarr:${{ steps.tag_version.outputs.new_tag }}
