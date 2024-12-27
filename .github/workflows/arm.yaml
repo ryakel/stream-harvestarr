@@ -11,7 +11,7 @@ on:
 jobs:
   docker:
     name: Docker (ARM)
-    runs-on: ubicloud-standard-2-arm
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
