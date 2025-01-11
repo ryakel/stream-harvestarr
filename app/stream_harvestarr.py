@@ -83,6 +83,8 @@ class StreamHarvester(object):
             self.ytdl_format = cfg['ytdl']['default_format']
         except Exception:
             sys.exit("Error with ytdl config.yml values.")
+        except Exception as e:
+            sys.exit(f"Error with ytdl config.yml values: {e}")
 
         # YTDL Setup
         try:
