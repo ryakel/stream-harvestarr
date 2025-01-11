@@ -5,7 +5,6 @@ import datetime
 import yaml
 import logging
 from logging.handlers import RotatingFileHandler
-from fuzzywuzzy import fuzz
 
 
 CONFIGFILE = os.environ['CONFIGPATH']
@@ -167,13 +166,3 @@ def setup_logging(lf_enabled=True, lc_enabled=True, debugging=False):
         logger.addHandler(loggerconsole)
 
     return logger
-
-def find_best_match_index(titles, name):
-    best_match_index = -1
-    best_match_score = -1
-    for i, title in enumerate(titles):
-        score = fuzz.ratio(name, title)
-        if score > best_match_score:
-            best_match_index = i
-            best_match_score = score
-    return best_match_index
