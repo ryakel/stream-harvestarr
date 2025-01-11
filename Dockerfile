@@ -35,14 +35,11 @@ RUN \
     /app/utils.py \
     /app/config.yml.template && \
     cp /app/config.yml.template /config/config.yml && \
-    chown ytdlp:ytdlpg app/* && \
 
 # clean up container
     apk del alpine-sdk
 
 # ENV setup
-USER ytdlp
-
 ENV CONFIGPATH="/config/config.yml"
 
 CMD [ "python", "-u", "/app/stream_harvestarr.py" ]
