@@ -90,6 +90,12 @@ class StreamHarvester(object):
         except Exception:
             sys.exit("Error with series config.yml values.")
 
+        # Merge output format
+        try:
+            self.ytdl_merge_output_format = cfg["ytdl"]["merge_output_format"]
+        except Exception:
+            sys.exit("Error with ytdl config.yml values.")
+
     def get_episodes_by_series_id(self, series_id):
         """Returns all episodes for the given series"""
         logger.debug('Begin call Sonarr for all episodes for series_id: {}'.format(series_id))
@@ -368,7 +374,7 @@ class StreamHarvester(object):
                             ytdl_format_options = {
                                 'format': self.ytdl_format,
                                 'quiet': True,
-                                'merge-output-format': 'mp4',
+                                "merge_output_format": self.ytdl_merge_output_format,
                                 'outtmpl': '/sonarr_root{0}/Season {1}/{2} - S{1}E{3} - {4} WEBDL.%(ext)s'.format(
                                     ser['path'],
                                     eps['seasonNumber'],
