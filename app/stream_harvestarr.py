@@ -343,11 +343,11 @@ class StreamHarvester(object):
             video_url = None
             if 'entries' in result and len(result['entries']) > 0:
                 try:
-                    video_url = result['entries'][0].get('webpage_url')
+                    video_url = result['entries'][0].get('url')
                 except Exception as e:
                     logger.error(e)
             else:
-                video_url = result.get('webpage_url')
+                video_url = result.get('url')
             if playlist == video_url:
                 return False, ''
             if video_url is None:
@@ -394,7 +394,7 @@ class StreamHarvester(object):
                             }
 
                             ytdl_format_options = self.appendcookie(ytdl_format_options, cookies)
-                            
+
                             if 'format' in ser:
                                 ytdl_format_options = self.customformat(ytdl_format_options, ser['format'])
                             if 'subtitles' in ser:
