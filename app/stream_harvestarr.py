@@ -77,6 +77,8 @@ class StreamHarvester(object):
             self.api_key = cfg['sonarr']['apikey']
         except Exception:
             sys.exit("Error with sonarr config.yml values.")
+        except Exception as e:
+            sys.exit("Error with sonarr config.yml values: {e}")
 
         # Series Setup
         try:
@@ -91,6 +93,8 @@ class StreamHarvester(object):
             self.series = cfg["series"]
         except Exception:
             sys.exit("Error with series config.yml values.")
+        except Exception as e:
+            sys.exit("Error with series config.yml values: {e}")
 
         # Merge output format
         try:
