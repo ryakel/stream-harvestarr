@@ -33,8 +33,7 @@ RUN \
     chmod a+x \
     /app/stream_harvestarr.py \
     /app/utils.py \
-    /app/config.yml.template \
-    /logs && \
+    /app/config.yml.template && \
     cp /app/config.yml.template /config/config.yml && \
 # clean up container
     apk del alpine-sdk
