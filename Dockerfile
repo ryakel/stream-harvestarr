@@ -35,7 +35,6 @@ RUN \
     /app/utils.py \
     /app/config.yml.template && \
     cp /app/config.yml.template /config/config.yml && \
-
 # clean up container
     apk del alpine-sdk
 
