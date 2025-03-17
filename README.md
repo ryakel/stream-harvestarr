@@ -24,7 +24,7 @@ Please update your image and update your config.yml. :warning:
 ## How do I use it
 
 1. Firstly you need a series that is available online in the supported sites that YouTube-DL can grab from.
-1. Secondly you need to add this to Sonarr and monitor the episodes that you want.
+1. Secondly you need to add the series to Sonarr (the way you would any other) and monitor the episodes that you want.
 1. Thirdly edit your config.yml accordingly so that this knows where your Sonarr is, which series you are after and where to grab it from.
 1. Lastly be aware that this requires the TVDB to match exactly what the episodes titles are in the scan, generally this is ok but as its an openly editable site sometime there can be differences.
 
