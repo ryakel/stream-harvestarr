@@ -429,7 +429,16 @@ class StreamHarvester(object):
                                     'progress_hooks': [ytdl_hooks_debug],
                                 })
                                 logger.debug('yt-dlp opts used for downloading')
-                                logger.debug(ytdl_format_options)
+                                # Redact potentially sensitive keys before logging
+                                def _redact_sensitive(d, keys=('apikey', 'cookie', 'cookies', 'cookies_file')):
+                                    safe = {}
+                                    for k, v in d.items():
+                                        if any(s in k.lower() for s in keys):
+                                            safe[k] = '***REDACTED***'
+                                        else:
+                                            safe[k] = v
+                                    return safe
+                                logger.debug(_redact_sensitive(ytdl_format_options))
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
                                      ydl.download([dlurl])
