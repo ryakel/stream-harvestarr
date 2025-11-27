@@ -20,7 +20,7 @@ jobs:
 
       # https://github.com/marketplace/actions/checkout
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # https://github.com/docker/login-action#docker-hub
       - name: Login to Docker Hub
