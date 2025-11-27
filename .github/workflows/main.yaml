@@ -61,7 +61,7 @@ jobs:
       # https://github.com/ncipollo/release-action 
       - name: Create a GitHub release
         if: github.ref == 'refs/heads/main'
-        uses: ncipollo/release-action@v1.16.0
+        uses: ncipollo/release-action@v1.20.0
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
           name: Release ${{ steps.tag_version.outputs.new_tag }}
