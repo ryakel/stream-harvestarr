@@ -77,18 +77,30 @@ class StreamHarvester(object):
             self.api_key = cfg['sonarr']['apikey']
         except Exception:
             sys.exit("Error with sonarr config.yml values.")
+        except Exception as e:
+            sys.exit("Error with sonarr config.yml values: {e}")
 
         # Series Setup
         try:
             self.ytdl_format = cfg['ytdl']['default_format']
         except Exception:
             sys.exit("Error with ytdl config.yml values.")
+        except Exception as e:
+            sys.exit(f"Error with ytdl config.yml values: {e}")
 
         # YTDL Setup
         try:
             self.series = cfg["series"]
         except Exception:
             sys.exit("Error with series config.yml values.")
+        except Exception as e:
+            sys.exit("Error with series config.yml values: {e}")
+
+        # Merge output format
+        try:
+            self.ytdl_merge_output_format = cfg["ytdl"]["merge_output_format"]
+        except Exception:
+            sys.exit("Error with ytdl config.yml values.")
 
     def get_episodes_by_series_id(self, series_id):
         """Returns all episodes for the given series"""
@@ -337,11 +349,11 @@ class StreamHarvester(object):
             video_url = None
             if 'entries' in result and len(result['entries']) > 0:
                 try:
-                    video_url = result['entries'][0].get('webpage_url')
+                    video_url = result['entries'][0].get('url')
                 except Exception as e:
                     logger.error(e)
             else:
-                video_url = result.get('webpage_url')
+                video_url = result.get('url')
             if playlist == video_url:
                 return False, ''
             if video_url is None:
@@ -368,7 +380,7 @@ class StreamHarvester(object):
                             ytdl_format_options = {
                                 'format': self.ytdl_format,
                                 'quiet': True,
-                                'merge-output-format': 'mp4',
+                                "merge_output_format": self.ytdl_merge_output_format,
                                 'outtmpl': '/sonarr_root{0}/Season {1}/{2} - S{1}E{3} - {4} WEBDL.%(ext)s'.format(
                                     ser['path'],
                                     eps['seasonNumber'],
@@ -378,8 +390,17 @@ class StreamHarvester(object):
                                 ),
                                 'progress_hooks': [ytdl_hooks],
                                 'noplaylist': True,
+                                'forceipv4': True,
+                                'sleep_interval': 5,
+                                'max_sleep_interval': 30,
+                                'nocontinue': True,
+                                'nooverwrites': True,
+                                'throttled_rate': '100K',
+                                'concurrent_fragments': 5,
                             }
+
                             ytdl_format_options = self.appendcookie(ytdl_format_options, cookies)
+
                             if 'format' in ser:
                                 ytdl_format_options = self.customformat(ytdl_format_options, ser['format'])
                             if 'subtitles' in ser:
@@ -408,7 +429,16 @@ class StreamHarvester(object):
                                     'progress_hooks': [ytdl_hooks_debug],
                                 })
                                 logger.debug('yt-dlp opts used for downloading')
-                                logger.debug(ytdl_format_options)
+                                # Redact potentially sensitive keys before logging
+                                def _redact_sensitive(d, keys=('apikey', 'cookie', 'cookies', 'cookies_file')):
+                                    safe = {}
+                                    for k, v in d.items():
+                                        if any(s in k.lower() for s in keys):
+                                            safe[k] = '***REDACTED***'
+                                        else:
+                                            safe[k] = v
+                                    return safe
+                                logger.debug(_redact_sensitive(ytdl_format_options))
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
                                      ydl.download([dlurl])
