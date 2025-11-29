@@ -1,0 +1,76 @@
+name: Sync Wiki to GitHub
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'wiki/**'
+  workflow_dispatch:
+
+# Explicit permissions following principle of least privilege
+permissions:
+  contents: write        # Required for cloning and pushing to wiki repository
+
+jobs:
+  sync-wiki:
+    name: Sync Wiki to GitHub Wiki
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout GitHub Wiki
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}.wiki
+          path: wiki-repo
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync wiki files
+        run: |
+          echo "📚 Syncing wiki files to GitHub Wiki..."
+
+          # Copy all markdown files from wiki/ to wiki-repo/
+          if [ -d "wiki" ]; then
+            echo "✓ Found wiki directory"
+            cp wiki/*.md wiki-repo/
+          else
+            echo "❌ Wiki directory not found"
+            exit 1
+          fi
+
+          cd wiki-repo
+
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Check if there are changes
+          if [[ -n $(git status -s) ]]; then
+            echo "✓ Changes detected, committing..."
+            git add .
+            git commit -m "Sync wiki from repository" \
+              -m "" \
+              -m "Automated sync from main branch" \
+              -m "" \
+              -m "Co-Authored-By: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+
+            echo "✓ Pushing to GitHub Wiki..."
+            git push origin master
+
+            echo "✅ Wiki sync completed successfully!"
+          else
+            echo "ℹ️  No changes to sync"
+          fi
+
+      - name: Summary
+        if: success()
+        run: |
+          echo "### ✅ Wiki Sync Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Documentation has been synchronized to GitHub Wiki:" >> $GITHUB_STEP_SUMMARY
+          echo "https://github.com/${{ github.repository }}/wiki" >> $GITHUB_STEP_SUMMARY

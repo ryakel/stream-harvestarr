@@ -20,6 +20,18 @@ Please update your image and update your config.yml. :warning:
 * Imports directly to Sonarr and it can then update your plex as and example
 * Allows setting time offsets to handle prerelease series
 * Can pass cookies.txt to handle site logins
+* Smart rate limiting with exponential backoff to prevent YouTube throttling
+* Comprehensive configuration options for bulk downloads
+
+## Documentation
+
+**For detailed documentation, configuration guides, and troubleshooting, visit the [Stream Harvestarr Wiki](https://github.com/ryakel/stream-harvestarr/wiki)**
+
+Key documentation sections:
+- [Configuration Guide](https://github.com/ryakel/stream-harvestarr/wiki/Configuration) - Complete configuration reference
+- [Rate Limiting & Performance](https://github.com/ryakel/stream-harvestarr/wiki/Rate-Limiting) - Handling YouTube rate limits
+- [Troubleshooting](https://github.com/ryakel/stream-harvestarr/wiki/Troubleshooting) - Common issues and solutions
+- [Advanced Features](https://github.com/ryakel/stream-harvestarr/wiki/Advanced-Features) - Cookies, subtitles, regex, and more
 
 ## How do I use it
 
