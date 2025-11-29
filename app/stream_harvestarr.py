@@ -216,12 +216,12 @@ class StreamHarvester(object):
 
     def request_get(self, url, params=None):
         """Wrapper on the requests.get"""
-        logger.debug('Begin GET with url: {}'.format(redact_sensitive(url)))
+        logger.debug('Begin GET request to Sonarr API')
         args = {
             "apikey": self.api_key
         }
         if params is not None:
-            logger.debug('Begin GET with params: {}'.format(redact_sensitive(str(params))))
+            logger.debug('GET request params keys: {}'.format(list(params.keys())))
             args.update(params)
         url = "{}?{}".format(
             url,
@@ -231,8 +231,8 @@ class StreamHarvester(object):
         return res
 
     def request_put(self, url, params=None, jsondata=None):
-        logger.debug('Begin PUT with url: {}'.format(redact_sensitive(url)))
         """Wrapper on the requests.put"""
+        logger.debug('Begin PUT request to Sonarr API')
         headers = {
             'Content-Type': 'application/json',
         }
@@ -241,7 +241,7 @@ class StreamHarvester(object):
         )
         if params is not None:
             args.update(params)
-            logger.debug('Begin PUT with params: {}'.format(redact_sensitive(str(params))))
+            logger.debug('PUT request params keys: {}'.format(list(params.keys())))
         res = requests.post(
             url,
             headers=headers,
@@ -405,8 +405,7 @@ class StreamHarvester(object):
             })
         ytdlopts = self.appendcookie(ytdlopts, cookies)
         if self.debug is True:
-            logger.debug('yt-dlp opts used for episode matching')
-            logger.debug(redact_sensitive(ytdlopts))
+            logger.debug('yt-dlp opts configured for episode matching')
         return ytdlopts
 
     def ytsearch(self, ydl_opts, playlist):
@@ -505,8 +504,7 @@ class StreamHarvester(object):
                                     'logger': YoutubeDLLogger(),
                                     'progress_hooks': [ytdl_hooks_debug],
                                 })
-                                logger.debug('yt-dlp opts used for downloading')
-                                logger.debug(redact_sensitive(ytdl_format_options))
+                                logger.debug('yt-dlp opts configured for downloading')
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
                                      ydl.download([dlurl])
