@@ -27,6 +27,41 @@ CONFIGPATH = CONFIGFILE.replace('config.yml', '')
 SCANINTERVAL = 60
 
 
+def redact_sensitive(data):
+    """Redact sensitive information like API keys, cookies, and file paths from data for logging"""
+    import re
+
+    # Handle dictionaries
+    if isinstance(data, dict):
+        redacted = {}
+        sensitive_keys = ('apikey', 'api_key', 'cookie', 'cookies', 'cookiefile', 'cookies_file', 'password', 'token')
+        for key, value in data.items():
+            if any(sensitive in key.lower() for sensitive in sensitive_keys):
+                redacted[key] = '***REDACTED***'
+            elif isinstance(value, (dict, list)):
+                redacted[key] = redact_sensitive(value)
+            else:
+                redacted[key] = value
+        return redacted
+
+    # Handle lists
+    elif isinstance(data, list):
+        return [redact_sensitive(item) for item in data]
+
+    # Handle strings
+    elif isinstance(data, str):
+        # Redact apikey parameters in URLs
+        data = re.sub(r'(apikey=)[^&\s]+', r'\1***REDACTED***', data)
+        data = re.sub(r'(apikey["\']?\s*:\s*["\']?)[^&\s,}"\']+', r'\1***REDACTED***', data)
+        # Redact file paths that might contain sensitive info
+        data = re.sub(r'(/[^/]+)*/(cookies?|\.txt|\.json)', r'***REDACTED***/\2', data)
+        return data
+
+    # Convert other types to string and redact
+    else:
+        return redact_sensitive(str(data))
+
+
 class StreamHarvester(object):
 
     def __init__(self):
@@ -51,6 +86,44 @@ class StreamHarvester(object):
                     logger.debug('DEBUGGING ENABLED')
             except AttributeError:
                 self.debug = False
+            # Rate limiting configuration
+            try:
+                self.download_delay = int(self.config_section.get('download_delay', 0))
+                if self.download_delay > 0:
+                    logger.info('Download delay set to {} seconds between downloads'.format(self.download_delay))
+            except (AttributeError, ValueError):
+                self.download_delay = 0
+            try:
+                self.sleep_requests = int(self.config_section.get('sleep_requests', 0))
+                if self.sleep_requests > 0:
+                    logger.info('Sleep requests set to {} seconds between API requests'.format(self.sleep_requests))
+            except (AttributeError, ValueError):
+                self.sleep_requests = 0
+            try:
+                self.rate_limit_sleep = int(self.config_section.get('rate_limit_sleep', 900))
+                logger.debug('Rate limit sleep set to {} seconds'.format(self.rate_limit_sleep))
+            except (AttributeError, ValueError):
+                self.rate_limit_sleep = 900
+            # Exponential backoff configuration
+            try:
+                self.backoff_enabled = self.config_section.get('exponential_backoff', True) in ['true', 'True', True]
+                if self.backoff_enabled:
+                    logger.info('Exponential backoff enabled for rate limiting')
+            except (AttributeError, ValueError):
+                self.backoff_enabled = True
+            try:
+                self.backoff_multiplier = float(self.config_section.get('backoff_multiplier', 2.0))
+                logger.debug('Backoff multiplier set to {}'.format(self.backoff_multiplier))
+            except (AttributeError, ValueError):
+                self.backoff_multiplier = 2.0
+            try:
+                self.backoff_max = int(self.config_section.get('backoff_max', 3600))
+                logger.debug('Max backoff set to {} seconds'.format(self.backoff_max))
+            except (AttributeError, ValueError):
+                self.backoff_max = 3600
+            # Exponential backoff state tracking
+            self.rate_limit_count = 0
+            self.current_backoff = self.rate_limit_sleep
         except Exception:
             sys.exit("Error with streamharvestarr config.yml values.")
 
@@ -143,12 +216,12 @@ class StreamHarvester(object):
 
     def request_get(self, url, params=None):
         """Wrapper on the requests.get"""
-        logger.debug('Begin GET with url: {}'.format(url))
+        logger.debug('Begin GET with url: {}'.format(redact_sensitive(url)))
         args = {
             "apikey": self.api_key
         }
         if params is not None:
-            logger.debug('Begin GET with params: {}'.format(params))
+            logger.debug('Begin GET with params: {}'.format(redact_sensitive(str(params))))
             args.update(params)
         url = "{}?{}".format(
             url,
@@ -158,7 +231,7 @@ class StreamHarvester(object):
         return res
 
     def request_put(self, url, params=None, jsondata=None):
-        logger.debug('Begin PUT with url: {}'.format(url))
+        logger.debug('Begin PUT with url: {}'.format(redact_sensitive(url)))
         """Wrapper on the requests.put"""
         headers = {
             'Content-Type': 'application/json',
@@ -168,7 +241,7 @@ class StreamHarvester(object):
         )
         if params is not None:
             args.update(params)
-            logger.debug('Begin PUT with params: {}'.format(params))
+            logger.debug('Begin PUT with params: {}'.format(redact_sensitive(str(params))))
         res = requests.post(
             url,
             headers=headers,
@@ -291,7 +364,7 @@ class StreamHarvester(object):
                     'cookiefile': cookie_path
                 })
                 # if self.debug is True:
-                logger.debug('  Cookies file used: {}'.format(cookie_path))
+                logger.debug('  Cookies file used: {}'.format(os.path.basename(cookie_path)))
             if cookie_exists is False:
                 logger.warning('  cookie files specified but doesn''t exist.')
             return ytdlopts
@@ -333,7 +406,7 @@ class StreamHarvester(object):
         ytdlopts = self.appendcookie(ytdlopts, cookies)
         if self.debug is True:
             logger.debug('yt-dlp opts used for episode matching')
-            logger.debug(ytdlopts)
+            logger.debug(redact_sensitive(ytdlopts))
         return ytdlopts
 
     def ytsearch(self, ydl_opts, playlist):
@@ -399,6 +472,10 @@ class StreamHarvester(object):
                                 'concurrent_fragments': 5,
                             }
 
+                            # Add sleep_interval_requests if configured
+                            if self.sleep_requests > 0:
+                                ytdl_format_options['sleep_interval_requests'] = self.sleep_requests
+
                             ytdl_format_options = self.appendcookie(ytdl_format_options, cookies)
 
                             if 'format' in ser:
@@ -429,23 +506,48 @@ class StreamHarvester(object):
                                     'progress_hooks': [ytdl_hooks_debug],
                                 })
                                 logger.debug('yt-dlp opts used for downloading')
-                                # Redact potentially sensitive keys before logging
-                                def _redact_sensitive(d, keys=('apikey', 'cookie', 'cookies', 'cookies_file')):
-                                    safe = {}
-                                    for k, v in d.items():
-                                        if any(s in k.lower() for s in keys):
-                                            safe[k] = '***REDACTED***'
-                                        else:
-                                            safe[k] = v
-                                    return safe
-                                logger.debug(_redact_sensitive(ytdl_format_options))
+                                logger.debug(redact_sensitive(ytdl_format_options))
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
                                      ydl.download([dlurl])
                                 self.rescanseries(ser['id'])
                                 logger.info("      Downloaded - {}".format(eps['title']))
+                                # Reset backoff on successful download
+                                if self.rate_limit_count > 0:
+                                    logger.info("      Rate limit recovered - resetting backoff counter")
+                                    self.rate_limit_count = 0
+                                    self.current_backoff = self.rate_limit_sleep
+                                # Add delay between downloads if configured
+                                if self.download_delay > 0:
+                                    logger.debug("      Waiting {} seconds before next download".format(self.download_delay))
+                                    time.sleep(self.download_delay)
                             except Exception as e:
-                                logger.error("      Failed - {} - {}".format(eps['title'], e))
+                                error_msg = str(e)
+                                # Check if this is a rate limit error
+                                if 'rate-limited' in error_msg.lower() or 'rate limit' in error_msg.lower() or 'try again later' in error_msg.lower():
+                                    self.rate_limit_count += 1
+
+                                    # Calculate backoff with exponential increase if enabled
+                                    if self.backoff_enabled and self.rate_limit_count > 1:
+                                        self.current_backoff = min(
+                                            int(self.rate_limit_sleep * (self.backoff_multiplier ** (self.rate_limit_count - 1))),
+                                            self.backoff_max
+                                        )
+                                        logger.error("      Failed - {} - RATE LIMITED (attempt {})".format(eps['title'], self.rate_limit_count))
+                                        logger.warning("      Exponential backoff: Sleeping for {} seconds ({}m {}s)...".format(
+                                            self.current_backoff,
+                                            self.current_backoff // 60,
+                                            self.current_backoff % 60
+                                        ))
+                                    else:
+                                        self.current_backoff = self.rate_limit_sleep
+                                        logger.error("      Failed - {} - RATE LIMITED".format(eps['title']))
+                                        logger.warning("      YouTube rate limit detected. Sleeping for {} seconds...".format(self.current_backoff))
+
+                                    time.sleep(self.current_backoff)
+                                    logger.info("      Resuming downloads after rate limit cooldown")
+                                else:
+                                    logger.error("      Failed - {} - {}".format(eps['title'], e))
                         else:
                             logger.info("    {}: Missing - {}:".format(e + 1, eps['title']))
         else:

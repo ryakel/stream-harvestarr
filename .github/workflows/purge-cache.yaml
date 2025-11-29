@@ -3,6 +3,10 @@ name: Purge Cache
 on:
   workflow_dispatch:
 
+# Explicit permissions following principle of least privilege
+permissions:
+  actions: write         # Required for purging cache
+
 jobs:
   purge-cache:
     name: Purge Cache
