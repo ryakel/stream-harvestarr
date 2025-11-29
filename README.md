@@ -114,6 +114,16 @@ On first run the docker will create a template file in the config folder. Exampl
 
 Copy the `config.yml.template` to a new file called `config.yml` and edit accordingly.
 
+### Upgrading from Previous Versions
+
+Stream Harvestarr is fully backward compatible with existing configuration files. New rate limiting features (added in recent versions) use sensible defaults if not specified in your config:
+
+- **Rate limiting is disabled by default** - Your existing config will continue working as before
+- **No config changes required** - Update the container and it just works
+- **Optional improvements** - Add new settings to enable rate limit protection (see [Rate Limiting guide](https://github.com/ryakel/stream-harvestarr/wiki/Rate-Limiting))
+
+To take advantage of the new rate limiting features, you can optionally add these settings to your existing `config.yml` under the `streamharvestarr:` section. See the [config.yml.template](./app/config.yml.template) for examples.
+
 If you found this helpful, please consider donating below.
 
 <!-- markdownlint-disable MD033 -->

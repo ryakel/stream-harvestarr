@@ -5,6 +5,7 @@ Welcome to the Stream Harvestarr documentation. This wiki provides comprehensive
 ## Quick Links
 
 - [Getting Started](#getting-started)
+- [Upgrading Guide](Upgrading)
 - [Configuration Guide](Configuration)
 - [Rate Limiting & Performance](Rate-Limiting)
 - [Troubleshooting](Troubleshooting)
@@ -31,6 +32,15 @@ Before using Stream Harvestarr, you need:
 5. **Start the container** - Stream Harvestarr will begin monitoring
 
 ## Documentation Sections
+
+### [Upgrading Guide](Upgrading)
+
+Upgrading to the latest version:
+- Backward compatibility guarantee
+- Latest features and improvements
+- Step-by-step upgrade process
+- Post-upgrade configuration
+- Troubleshooting upgrades
 
 ### [Configuration Guide](Configuration)
 
