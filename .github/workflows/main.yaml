@@ -8,7 +8,13 @@ on:
       - development
     tags:
       - "*"
-      
+
+# Explicit permissions following principle of least privilege
+permissions:
+  contents: write        # Required for creating releases and tags
+  actions: write         # Required for purging cache
+  packages: write        # Required for publishing Docker images
+
 jobs:
   docker:
     name: Docker

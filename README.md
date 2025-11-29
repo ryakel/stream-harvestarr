@@ -20,6 +20,18 @@ Please update your image and update your config.yml. :warning:
 * Imports directly to Sonarr and it can then update your plex as and example
 * Allows setting time offsets to handle prerelease series
 * Can pass cookies.txt to handle site logins
+* Smart rate limiting with exponential backoff to prevent YouTube throttling
+* Comprehensive configuration options for bulk downloads
+
+## Documentation
+
+**For detailed documentation, configuration guides, and troubleshooting, visit the [Stream Harvestarr Wiki](https://github.com/ryakel/stream-harvestarr/wiki)**
+
+Key documentation sections:
+- [Configuration Guide](https://github.com/ryakel/stream-harvestarr/wiki/Configuration) - Complete configuration reference
+- [Rate Limiting & Performance](https://github.com/ryakel/stream-harvestarr/wiki/Rate-Limiting) - Handling YouTube rate limits
+- [Troubleshooting](https://github.com/ryakel/stream-harvestarr/wiki/Troubleshooting) - Common issues and solutions
+- [Advanced Features](https://github.com/ryakel/stream-harvestarr/wiki/Advanced-Features) - Cookies, subtitles, regex, and more
 
 ## How do I use it
 
@@ -101,6 +113,16 @@ A couple of people are not sure what is meant by the sonarr root. As this downlo
 On first run the docker will create a template file in the config folder. Example [config.yml.template](./app/config.yml.template)
 
 Copy the `config.yml.template` to a new file called `config.yml` and edit accordingly.
+
+### Upgrading from Previous Versions
+
+Stream Harvestarr is fully backward compatible with existing configuration files. New rate limiting features (added in recent versions) use sensible defaults if not specified in your config:
+
+- **Rate limiting is disabled by default** - Your existing config will continue working as before
+- **No config changes required** - Update the container and it just works
+- **Optional improvements** - Add new settings to enable rate limit protection (see [Rate Limiting guide](https://github.com/ryakel/stream-harvestarr/wiki/Rate-Limiting))
+
+To take advantage of the new rate limiting features, you can optionally add these settings to your existing `config.yml` under the `streamharvestarr:` section. See the [config.yml.template](./app/config.yml.template) for examples.
 
 If you found this helpful, please consider donating below.
 

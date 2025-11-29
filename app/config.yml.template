@@ -1,6 +1,12 @@
 streamharvestarr:
     scan_interval: 1  # minutes between scans
     debug: False  # Set to True for a more verbose output
+    download_delay: 0  # seconds to wait between downloads (0 = no delay, recommended: 5-10 for rate limit prevention)
+    sleep_requests: 0  # seconds to wait between API requests to YouTube (0 = no delay, recommended: 1-3 for rate limit prevention)
+    rate_limit_sleep: 900  # seconds to wait when rate limited (default: 900 = 15 minutes, YouTube suggests up to 1 hour)
+    exponential_backoff: True  # enable exponential backoff when repeatedly rate limited (default: True)
+    backoff_multiplier: 2.0  # multiply wait time by this factor on each subsequent rate limit (default: 2.0)
+    backoff_max: 3600  # maximum backoff time in seconds (default: 3600 = 1 hour)
 sonarr:
     host: 192.168.1.123
     port: 8989  # sonarr default port
