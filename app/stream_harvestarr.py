@@ -531,7 +531,7 @@ class StreamHarvester(object):
                                             int(self.rate_limit_sleep * (self.backoff_multiplier ** (self.rate_limit_count - 1))),
                                             self.backoff_max
                                         )
-                                        logger.error("      Failed - {} - RATE LIMITED (attempt {})".format(eps['title'], self.rate_limit_count))
+                                        logger.error("      Failed - entry %d - RATE LIMITED (attempt %d)", e + 1, self.rate_limit_count)
                                         logger.warning("      Exponential backoff: Sleeping for {} seconds ({}m {}s)...".format(
                                             self.current_backoff,
                                             self.current_backoff // 60,
@@ -539,13 +539,13 @@ class StreamHarvester(object):
                                         ))
                                     else:
                                         self.current_backoff = self.rate_limit_sleep
-                                        logger.error("      Failed - episode %d - RATE LIMITED", eps.get('episodeNumber', 0))
+                                        logger.error("      Failed - entry %d - RATE LIMITED", e + 1)
                                         logger.warning("      YouTube rate limit detected. Sleeping for {} seconds...".format(self.current_backoff))
 
                                     time.sleep(self.current_backoff)
                                     logger.info("      Resuming downloads after rate limit cooldown")
                                 else:
-                                    logger.error("      Failed - episode %d - %s", eps.get('episodeNumber', 0), type(e).__name__)
+                                    logger.error("      Failed - entry %d - download error", e + 1)
                         else:
                             logger.info("    {}: Missing - {}:".format(e + 1, eps['title']))
         else:
