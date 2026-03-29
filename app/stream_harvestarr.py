@@ -4,7 +4,7 @@ import yt_dlp
 import os
 import sys
 import re
-from utils import upperescape, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging, sanitize_log  # NOQA
+from utils import upperescape, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
 from datetime import datetime
 import schedule
 import time
@@ -221,7 +221,7 @@ class StreamHarvester(object):
             "apikey": self.api_key
         }
         if params is not None:
-            logger.debug('GET request params keys: %s', sanitize_log(list(params.keys())))
+            logger.debug('GET request with %d additional params', len(params))
             args.update(params)
         url = "{}?{}".format(
             url,
@@ -364,7 +364,7 @@ class StreamHarvester(object):
                     'cookiefile': cookie_path
                 })
                 # if self.debug is True:
-                logger.debug('  Cookies file used: %s', sanitize_log(os.path.basename(cookie_path)))
+                logger.debug('  Cookies file loaded successfully')
             if cookie_exists is False:
                 logger.warning('  cookie files specified but doesn''t exist.')
             return ytdlopts
@@ -539,13 +539,13 @@ class StreamHarvester(object):
                                         ))
                                     else:
                                         self.current_backoff = self.rate_limit_sleep
-                                        logger.error("      Failed - %s - RATE LIMITED", sanitize_log(eps['title']))
+                                        logger.error("      Failed - episode %d - RATE LIMITED", eps.get('episodeNumber', 0))
                                         logger.warning("      YouTube rate limit detected. Sleeping for {} seconds...".format(self.current_backoff))
 
                                     time.sleep(self.current_backoff)
                                     logger.info("      Resuming downloads after rate limit cooldown")
                                 else:
-                                    logger.error("      Failed - %s - %s", sanitize_log(eps['title']), sanitize_log(e))
+                                    logger.error("      Failed - episode %d - %s", eps.get('episodeNumber', 0), type(e).__name__)
                         else:
                             logger.info("    {}: Missing - {}:".format(e + 1, eps['title']))
         else:
