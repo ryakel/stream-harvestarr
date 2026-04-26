@@ -8,16 +8,23 @@ ARG TARGETARCH
 # Copy requirements
 COPY requirements.txt requirements.txt
 
-# Install ffmpeg, deno (JS runtime for yt-dlp YouTube extraction) and Python deps.
-# BuildKit cache mounts dramatically speed up rebuilds, including under QEMU
-# emulation for non-native architectures. Caches are scoped per TARGETARCH so
-# parallel multi-arch builds don't fight over arch-specific package files.
+# yt-dlp needs a JavaScript runtime for YouTube extraction (issue #96).
+# nodejs is available on every Alpine arch we publish for; deno is only
+# packaged for x86_64 / aarch64, so install it conditionally. yt-dlp is
+# configured to prefer deno when present and fall back to node.
+#
+# BuildKit cache mounts (per TARGETARCH so parallel multi-arch builds don't
+# fight over arch-specific package files) make rebuilds -- including under
+# QEMU emulation for non-native architectures -- dramatically faster.
 RUN --mount=type=cache,target=/var/cache/apk,id=apk-${TARGETARCH},sharing=locked \
     --mount=type=cache,target=/root/.cache/pip,id=pip-${TARGETARCH},sharing=locked \
     ln -vsf /var/cache/apk /etc/apk/cache && \
     apk update && \
     apk upgrade && \
-    apk add ffmpeg curl deno alpine-sdk && \
+    apk add ffmpeg curl alpine-sdk nodejs && \
+    case "$TARGETARCH" in \
+        amd64|arm64) apk add deno ;; \
+    esac && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt && \
     apk del alpine-sdk

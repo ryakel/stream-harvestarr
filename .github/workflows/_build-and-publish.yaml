@@ -131,7 +131,8 @@ jobs:
             python --version
             ffmpeg -version | head -n 1
             yt-dlp --version
-            deno --version | head -n 1
+            # deno on amd64/arm64, node fallback on 386/armv7 (smoke runs amd64).
+            (deno --version | head -n 1) || node --version
             python -c "import sys; sys.path.insert(0, \"/app\"); import utils"
           '
 
