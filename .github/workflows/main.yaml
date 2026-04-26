@@ -9,34 +9,24 @@ on:
     tags:
       - "*"
 
-# Explicit permissions following principle of least privilege
 permissions:
-  contents: write        # Required for creating releases and tags
-  actions: write         # Required for purging cache
-  packages: write        # Required for publishing Docker images
+  contents: write        # tag + release creation
+  actions: write         # cache purge
+  packages: write        # GHCR push (delegated)
 
 jobs:
-  docker:
-    name: Docker
+  prepare:
+    name: Prepare release metadata
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
+    outputs:
+      docker_tag: ${{ steps.tag.outputs.tag }}
+      version_tag: ${{ steps.tag_version.outputs.new_tag }}
+      update_dockerhub_description: ${{ steps.flags.outputs.is_main }}
     steps:
-
-      # https://github.com/marketplace/actions/checkout
       - name: Checkout
         uses: actions/checkout@v6
 
-      # https://github.com/docker/login-action#docker-hub
-      - name: Login to Docker Hub
-        uses: docker/login-action@v4
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
-
-      - name: Set Docker Tag
+      - name: Set Docker tag
         id: tag
         run: |
           if [[ $GITHUB_REF == refs/heads/development ]]; then
@@ -46,16 +36,17 @@ jobs:
           else
             DOCKER_TAG="${GITHUB_REF:11}"
           fi
-          echo "tag=${DOCKER_TAG}" >> $GITHUB_OUTPUT
+          echo "tag=${DOCKER_TAG}" >> "$GITHUB_OUTPUT"
 
-      # https://github.com/MyAlbum/purge-cache
-      - name: Purge Build Cache
-        uses: MyAlbum/purge-cache@v2
-        with:
-          debug: true # turn on debug logging (default: false)
-          max-age: 5400 # Leave only caches accessed/created in the last 90 minutes (default: 604800 - 7 days)
+      - name: Set flags
+        id: flags
+        run: |
+          if [[ $GITHUB_REF == refs/heads/main ]]; then
+            echo "is_main=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_main=false" >> "$GITHUB_OUTPUT"
+          fi
 
-      # https://github.com/mathieudutour/github-tag-action 
       - name: Bump version and push tag
         if: github.ref == 'refs/heads/main'
         id: tag_version
@@ -64,66 +55,23 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           custom_release_rules: major:major,breaking:major,minor:minor,patch:patch,fix:patch
 
-      # https://github.com/ncipollo/release-action 
       - name: Create a GitHub release
         if: github.ref == 'refs/heads/main'
         uses: ncipollo/release-action@v1.21.0
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
           name: Release ${{ steps.tag_version.outputs.new_tag }}
-          body: ${{ steps.tag_version.outputs.changelog }} 
+          body: ${{ steps.tag_version.outputs.changelog }}
 
-      # https://github.com/docker/setup-qemu-action
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
-
-      # https://github.com/docker/setup-buildx-action
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      # https://github.com/docker/build-push-action
-      - name: Build and Push Dev Docker Image
-        if: github.ref == 'refs/heads/development' || startsWith(github.ref, 'refs/tags/')
-        id: docker_build_dev
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          push: true
-          sbom: true
-          provenance: mode=max
-          file: ./Dockerfile
-          platforms: linux/arm/v7,linux/arm64,linux/386,linux/amd64
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/stream-harvestarr:${{ steps.tag.outputs.tag }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # https://github.com/docker/build-push-action
-      - name: Build and Push Main Docker Image
-        if: github.ref == 'refs/heads/main'
-        id: docker_build_main
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          push: true
-          sbom: true
-          provenance: mode=max
-          file: ./Dockerfile
-          platforms: linux/arm/v7,linux/arm64,linux/386,linux/amd64
-          tags: |
-            ${{ secrets.DOCKER_USERNAME }}/stream-harvestarr:${{ steps.tag.outputs.tag }}
-            ${{ secrets.DOCKER_USERNAME }}/stream-harvestarr:${{ steps.tag_version.outputs.new_tag }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # https://github.com/marketplace/actions/docker-hub-description
-      - name: Update Docker Hub Description
-        if: github.ref == 'refs/heads/main'
-        uses: peter-evans/dockerhub-description@v5
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_TOKEN }}
-          repository: ryakel/stream-harvestarr
-          enable-url-completion: true
+  build-and-publish:
+    name: Build and publish
+    needs: prepare
+    uses: ./.github/workflows/_build-and-publish.yaml
+    with:
+      docker_tag: ${{ needs.prepare.outputs.docker_tag }}
+      version_tag: ${{ needs.prepare.outputs.version_tag }}
+      publish_to_dockerhub: true
+      update_dockerhub_description: ${{ needs.prepare.outputs.update_dockerhub_description == 'true' }}
+    secrets:
+      DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+      DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}

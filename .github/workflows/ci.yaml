@@ -98,6 +98,13 @@ jobs:
         # Catches regressions like #96 where yt-dlp could not find a JS
         # runtime and every download died with "No video_url".
         # BaW_jenozKc is the upstream yt-dlp integration-test video.
+        #
+        # Non-blocking: YouTube periodically blocks GitHub Actions IP
+        # ranges, which produces false-negative red checks. The deps-verify
+        # step above stays blocking and catches issue-#96 -class breaks
+        # (no JS runtime installed). Real-world YouTube extraction signal
+        # is owned by a separate residential-IP cron (TODO follow-up).
+        continue-on-error: true
         env:
           TEST_VIDEO: https://www.youtube.com/watch?v=BaW_jenozKc
         run: |
