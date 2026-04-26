@@ -26,6 +26,12 @@ CONFIGFILE = os.environ['CONFIGPATH']
 CONFIGPATH = CONFIGFILE.replace('config.yml', '')
 SCANINTERVAL = 60
 
+# yt-dlp needs a JavaScript runtime for YouTube extraction.  Prefer deno
+# (upstream default, installed on amd64/arm64 images) and fall back to
+# node (installed on every image, including 386/armv7 where deno is not
+# packaged for Alpine).  See issue #96.
+JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
+
 
 def redact_sensitive(data):
     """Redact sensitive information like API keys, cookies, and file paths from data for logging"""
@@ -395,7 +401,7 @@ class StreamHarvester(object):
             'matchtitle': regextitle,
             'quiet': True,
             'match-filter': '!is_short & !url =~ /shorts/',  # Exclude YouTube Shorts
-
+            'js_runtimes': JS_RUNTIMES,
         }
         if self.debug is True:
             ytdlopts.update({
@@ -469,6 +475,7 @@ class StreamHarvester(object):
                                 'nooverwrites': True,
                                 'throttled_rate': '100K',
                                 'concurrent_fragments': 5,
+                                'js_runtimes': JS_RUNTIMES,
                             }
 
                             # Add sleep_interval_requests if configured

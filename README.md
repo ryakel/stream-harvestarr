@@ -44,10 +44,18 @@ Key documentation sections:
 
 The following **Linux** architectures supported by this image are:
 
-| Architectures | Tag |
-| :----: | --- |
-| armv7<br>arm64<br>386<br>amd64 | latest |
-| armv7<br>arm64<br>386<br>amd64 | dev |
+| Architectures | Tag | JS runtime for yt-dlp |
+| :----: | --- | --- |
+| arm64<br>amd64 | latest | deno (yt-dlp's recommended sandboxed runtime) |
+| armv7<br>386 | latest | node (deno is not packaged on Alpine for these arches) |
+| arm64<br>amd64 | dev | deno |
+| armv7<br>386 | dev | node |
+
+YouTube extraction works on all four arches. The `armv7` and `386` images
+fall back to `nodejs` because Alpine doesn't ship a `deno` package for
+them; if yt-dlp ever requires deno-specific extractor features, those
+arches may lag behind `amd64` / `arm64`. amd64 and arm64 remain the
+recommended targets.
 
 :spiral_notepad: ARM builds have been restored as of v1.3.3. :spiral_notepad:	
 
