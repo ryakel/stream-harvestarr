@@ -35,3 +35,27 @@ All work follows: **feature branch → `development` → `main`**.
 If a new platform is added to `main.yaml` / `cron.yaml`, also add it to
 the `build-multiarch` job in `ci.yaml` so build failures land in PR
 checks instead of in the publish workflow.
+
+## Architecture parity caveat
+
+`amd64` and `arm64` are the recommended (and most-tested) targets:
+
+- They install `deno`, yt-dlp's upstream-recommended JavaScript runtime,
+  which sandboxes JS execution under restricted permissions.
+- The CI smoke test runs on `linux/amd64` only, so any runtime
+  regression is caught there first.
+
+`386` and `armv7` are best-effort:
+
+- Alpine doesn't package `deno` for these arches, so they ship with
+  `nodejs` only. yt-dlp's `js_runtimes` config falls back to node.
+- YouTube extraction works today, but if upstream yt-dlp ever adds
+  extractor features that depend on deno-specific APIs / sandboxing,
+  these arches may lag.
+- The multi-arch build job in `ci.yaml` keeps them honest at build
+  time, but there is no per-arch runtime smoke test.
+
+If a feature gap shows up for these arches, the response is to either
+(a) drop the arch from the publish matrix, or (b) carry a deno binary
+into the image manually. Don't paper over it with try/except in the
+Python code.
