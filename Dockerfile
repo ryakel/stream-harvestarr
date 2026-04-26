@@ -5,10 +5,10 @@ LABEL org.opencontainers.image.source="https://github.com/ryakel/stream-harvesta
 # Copy requirements
 COPY requirements.txt requirements.txt
 
-# Update and install ffmpeg and requirements
+# Update and install ffmpeg, deno (JS runtime for yt-dlp YouTube extraction) and requirements
 RUN apk update --no-cache && \
     apk upgrade --no-cache && \
-    apk add --no-cache ffmpeg curl alpine-sdk && \
+    apk add --no-cache ffmpeg curl deno alpine-sdk && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt
 
