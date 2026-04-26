@@ -5,10 +5,17 @@ LABEL org.opencontainers.image.source="https://github.com/ryakel/stream-harvesta
 # Copy requirements
 COPY requirements.txt requirements.txt
 
-# Update and install ffmpeg, deno (JS runtime for yt-dlp YouTube extraction) and requirements
+# yt-dlp needs a JavaScript runtime for YouTube extraction (issue #96).
+# nodejs is available on every Alpine arch we publish for; deno is only
+# packaged for x86_64 / aarch64, so install it conditionally.  yt-dlp is
+# configured to prefer deno when present and fall back to node.
+ARG TARGETARCH
 RUN apk update --no-cache && \
     apk upgrade --no-cache && \
-    apk add --no-cache ffmpeg curl deno alpine-sdk && \
+    apk add --no-cache ffmpeg curl alpine-sdk nodejs && \
+    case "$TARGETARCH" in \
+        amd64|arm64) apk add --no-cache deno ;; \
+    esac && \
     pip3 install --upgrade pip && \
     pip3 install -r requirements.txt
 
