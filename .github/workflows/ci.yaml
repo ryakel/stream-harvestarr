@@ -38,11 +38,15 @@ jobs:
         uses: docker/setup-buildx-action@v4
 
       - name: Build all platforms (no push)
+        # Build flags must mirror main.yaml / cron.yaml so this job is a
+        # true canary for the publish pipeline.
         uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
           push: false
+          sbom: true
+          provenance: mode=max
           platforms: linux/arm/v7,linux/arm64,linux/386,linux/amd64
           tags: stream-harvestarr:ci-multiarch
           cache-from: type=gha
