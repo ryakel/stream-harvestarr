@@ -5,9 +5,6 @@ on:
     branches:
       - main
       - development
-  push:
-    branches:
-      - development
   workflow_dispatch:
   schedule:
     # Weekly catch for upstream yt-dlp / YouTube changes that don't ride
@@ -49,8 +46,10 @@ jobs:
           provenance: mode=max
           platforms: linux/arm/v7,linux/arm64,linux/386,linux/amd64
           tags: stream-harvestarr:ci-multiarch
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Read from the same registry-backed cache the publish workflow
+          # populates. No cache-to: PR canaries (including from forks) must
+          # never write to the shared cache.
+          cache-from: type=registry,ref=ghcr.io/ryakel/stream-harvestarr/buildcache
 
   smoke-test:
     name: Smoke Test (linux/amd64)
@@ -75,8 +74,7 @@ jobs:
           push: false
           platforms: linux/amd64
           tags: stream-harvestarr:ci
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=registry,ref=ghcr.io/ryakel/stream-harvestarr/buildcache
 
       - name: Verify runtime dependencies are installed
         run: |

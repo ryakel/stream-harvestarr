@@ -11,7 +11,6 @@ on:
 
 permissions:
   contents: write        # tag + release creation
-  actions: write         # cache purge
   packages: write        # GHCR push (delegated)
 
 jobs:
@@ -28,13 +27,19 @@ jobs:
 
       - name: Set Docker tag
         id: tag
+        # `github.ref_name` is the branch or tag name without the
+        # `refs/heads/` or `refs/tags/` prefix -- safer than slicing
+        # GITHUB_REF, which previously stripped 11 chars and dropped the
+        # leading `v` from `refs/tags/v1.2.3`.
         run: |
-          if [[ $GITHUB_REF == refs/heads/development ]]; then
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            DOCKER_TAG="${{ github.ref_name }}"
+          elif [[ "${{ github.ref_name }}" == "development" ]]; then
             DOCKER_TAG="dev"
-          elif [[ $GITHUB_REF == refs/heads/main ]]; then
+          elif [[ "${{ github.ref_name }}" == "main" ]]; then
             DOCKER_TAG="latest"
           else
-            DOCKER_TAG="${GITHUB_REF:11}"
+            DOCKER_TAG="${{ github.ref_name }}"
           fi
           echo "tag=${DOCKER_TAG}" >> "$GITHUB_OUTPUT"
 
