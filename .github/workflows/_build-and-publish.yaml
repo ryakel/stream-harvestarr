@@ -1,0 +1,184 @@
+name: _build-and-publish
+
+# Reusable workflow that owns the full image lifecycle:
+#   1. Build multi-arch image, push to GHCR by digest with registry-backed cache.
+#   2. Smoke-test the just-pushed digest (runs the actual artifact).
+#   3. Tag the GHCR digest, then replicate the manifest to Docker Hub via
+#      `regctl image copy` (manifest copy by digest -- no rebuild, no rebake).
+#
+# GHCR is the source of truth. Docker Hub is a downstream replica that users
+# pull from. Bytes flow source -> GHCR once; everything else is metadata.
+
+on:
+  workflow_call:
+    inputs:
+      docker_tag:
+        description: "Primary tag (e.g. latest, dev, v1.2.3)."
+        required: true
+        type: string
+      version_tag:
+        description: "Optional secondary tag (e.g. semver from the tagger)."
+        required: false
+        type: string
+        default: ""
+      publish_to_dockerhub:
+        description: "Replicate the GHCR digest to Docker Hub."
+        required: false
+        type: boolean
+        default: true
+      update_dockerhub_description:
+        description: "Refresh the Docker Hub README from this repo."
+        required: false
+        type: boolean
+        default: false
+      platforms:
+        description: "Comma-separated buildx platform list."
+        required: false
+        type: string
+        default: "linux/arm/v7,linux/arm64,linux/386,linux/amd64"
+    secrets:
+      DOCKER_USERNAME:
+        required: true
+      DOCKER_TOKEN:
+        required: true
+    outputs:
+      digest:
+        description: "GHCR manifest digest of the pushed image."
+        value: ${{ jobs.build.outputs.digest }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: Build & push to GHCR
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image: ${{ steps.vars.outputs.image }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Compute lowercase image name
+        id: vars
+        run: |
+          echo "image=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Extract OCI metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.vars.outputs.image }}
+
+      - name: Build and push to GHCR
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          sbom: true
+          provenance: mode=max
+          platforms: ${{ inputs.platforms }}
+          tags: |
+            ${{ steps.vars.outputs.image }}:${{ inputs.docker_tag }}
+            ${{ inputs.version_tag != '' && format('{0}:{1}', steps.vars.outputs.image, inputs.version_tag) || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Registry-backed cache is unscoped, persistent across workflows, and
+          # not subject to the per-branch 10GB GHA cache eviction policy.
+          cache-from: type=registry,ref=${{ steps.vars.outputs.image }}/buildcache
+          cache-to: type=registry,ref=${{ steps.vars.outputs.image }}/buildcache,mode=max
+
+  smoke-test:
+    name: Smoke test pushed digest
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull and exercise the image
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          echo "Smoke-testing $IMAGE"
+          docker pull "$IMAGE"
+          # Verify the runtime stack is present and the app module imports cleanly.
+          # Docker selects the runner-arch variant (amd64) from the multi-arch
+          # manifest; non-native arches are vouched for by the build itself.
+          docker run --rm --entrypoint sh "$IMAGE" -c '
+            set -e
+            python --version
+            ffmpeg -version | head -n 1
+            yt-dlp --version
+            deno --version | head -n 1
+            python -c "import sys; sys.path.insert(0, \"/app\"); import utils"
+          '
+
+  replicate:
+    name: Replicate to Docker Hub
+    if: ${{ inputs.publish_to_dockerhub }}
+    needs: [build, smoke-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Install regctl
+        uses: regclient/actions/regctl-installer@main
+
+      - name: Copy manifest GHCR -> Docker Hub
+        env:
+          SRC: ${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_TAG: ${{ inputs.docker_tag }}
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: |
+          set -euo pipefail
+          DEST_REPO="docker.io/${DOCKER_USERNAME}/stream-harvestarr"
+          echo "Copying $SRC -> ${DEST_REPO}:${DOCKER_TAG}"
+          regctl image copy "$SRC" "${DEST_REPO}:${DOCKER_TAG}"
+          if [ -n "$VERSION_TAG" ]; then
+            echo "Copying $SRC -> ${DEST_REPO}:${VERSION_TAG}"
+            regctl image copy "$SRC" "${DEST_REPO}:${VERSION_TAG}"
+          fi
+
+      - name: Update Docker Hub description
+        if: ${{ inputs.update_dockerhub_description }}
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+          repository: ryakel/stream-harvestarr
+          enable-url-completion: true
