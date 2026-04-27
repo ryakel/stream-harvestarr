@@ -59,3 +59,36 @@ If a feature gap shows up for these arches, the response is to either
 (a) drop the arch from the publish matrix, or (b) carry a deno binary
 into the image manually. Don't paper over it with try/except in the
 Python code.
+
+## Dependency floor maintenance (Claude is the automation)
+
+`requirements.txt` uses `>=` floors. Dependabot is configured to yell
+when those floors drift below PyPI latest — that's intentional, don't
+disable it. The image always runs the absolute latest at build time
+(pip resolves `>=` to current); the floors are how we record what
+we've actually validated.
+
+**You (Claude) keep the floors current, not the pipeline.** Any time
+you touch code in this repo, run the bump check before you commit:
+
+```bash
+# Freshness: skip if requirements.txt was touched in the last 4 hours.
+last=$(git log -1 --format=%ct -- requirements.txt 2>/dev/null || echo 0)
+now=$(date +%s)
+if [ $(( now - last )) -lt 14400 ]; then
+    echo "requirements.txt is fresh; skipping bump."
+else
+    # For each `<pkg>>=<ver>` line, query
+    # https://pypi.org/pypi/<pkg>/json -> info.version and rewrite
+    # the floor when it differs.
+    for pkg in $(grep -oE '^[A-Za-z0-9_.-]+(?=>=)' requirements.txt); do
+        latest=$(curl -fsS "https://pypi.org/pypi/${pkg}/json" \
+                 | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
+        sed -i "s|^${pkg}>=.*|${pkg}>=${latest}|" requirements.txt
+    done
+fi
+```
+
+Land the bump as its own `chore(deps): bump requirements floors to
+PyPI latest` commit *before* the code change. If PyPI is unreachable,
+warn and continue with the existing floors — don't block progress.
