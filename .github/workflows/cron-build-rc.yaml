@@ -1,11 +1,21 @@
-name: Cron
+name: Cron - Weekly RC Build
 
-# Weekly rebuild against the default branch to pick up upstream base-image and
-# package security updates. Tag/release bookkeeping is owned by main.yaml.
+# Wednesday rebuild that publishes to :rc (release candidate). The Thursday
+# promotion workflow (cron-promote-rc.yaml) retags this digest to :latest
+# after a 24h soak window.
+#
+# Tag/release bookkeeping (vX.Y.Z + GitHub release) happens here on
+# Wednesday since the build is what creates the artifact; Thursday only
+# retags by digest. If Thursday's promotion is blocked or fails, the
+# release still exists and users can pull :rc or :vX.Y.Z directly.
+#
+# Note: GitHub `schedule:` triggers fire only against the default branch
+# (main), so this workflow always runs against main's HEAD. There is no
+# "cron on dev" -- by design.
 
 on:
   schedule:
-    - cron: '15 06 * * 3'
+    - cron: '15 06 * * 3'  # Wed 06:15 UTC
   workflow_dispatch:
 
 permissions:
@@ -14,7 +24,7 @@ permissions:
 
 jobs:
   prepare:
-    name: Prepare release metadata
+    name: Prepare RC release metadata
     runs-on: ubuntu-latest
     outputs:
       docker_tag: ${{ steps.tag.outputs.tag }}
@@ -25,7 +35,7 @@ jobs:
 
       - name: Set Docker tag
         id: tag
-        run: echo "tag=latest" >> "$GITHUB_OUTPUT"
+        run: echo "tag=rc" >> "$GITHUB_OUTPUT"
 
       - name: Bump version and push tag
         id: tag_version
@@ -33,12 +43,8 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           custom_release_rules: major:major,breaking:major,minor:minor,patch:patch,fix:patch
-          # Bump every weekly run -- the *rebake itself* is the release.
-          # yt-dlp ships frequently to chase YouTube changes; Alpine ships
-          # base-image security patches; pip resolves >= constraints to
-          # whatever's current. Each Wednesday's image is genuinely
-          # different content even with no source changes, and a new
-          # vX.Y.Z lets users pin / roll back to a known-good week.
+          # Bump every weekly run -- the rebake itself is the release.
+          # See cron-restore-weekly-bump (#104) for rationale.
           default_bump: patch
 
       - name: Create a GitHub release
@@ -56,19 +62,22 @@ jobs:
             - Python deps satisfying current `requirements.txt` constraints
               (notably yt-dlp, which ships frequently to track YouTube changes)
 
-            Pin to this tag for reproducibility, or follow `:latest` to track weekly.
+            Currently published as `:rc` and `:${{ steps.tag_version.outputs.new_tag }}`.
+            Will be promoted to `:latest` on Thursday after the 24h soak window.
 
             ${{ steps.tag_version.outputs.changelog }}
 
   build-and-publish:
-    name: Build and publish
+    name: Build and publish RC
     needs: prepare
     uses: ./.github/workflows/_build-and-publish.yaml
     with:
       docker_tag: ${{ needs.prepare.outputs.docker_tag }}
       version_tag: ${{ needs.prepare.outputs.version_tag }}
       publish_to_dockerhub: true
-      update_dockerhub_description: true
+      # Defer Docker Hub README refresh until promotion to :latest. This
+      # build is :rc + :vX.Y.Z, not the user-facing latest.
+      update_dockerhub_description: false
     secrets:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
