@@ -1,5 +1,5 @@
 requests>=2.32.3
-yt-dlp>=2025.1.27
+yt-dlp>=2026.3.17
 yt-dlp-ejs
 pyyaml>=6.0.2
 schedule>=1.2.2
