@@ -1,7 +1,7 @@
-requests>=2.32.3
-yt-dlp>=2025.1.27
-yt-dlp-ejs
-pyyaml>=6.0.2
+requests>=2.33.1
+yt-dlp>=2026.3.17
+yt-dlp-ejs>=0.8.0
+pyyaml>=6.0.3
 schedule>=1.2.2
 fuzzywuzzy>=0.18.0
-Levenshtein>=0.27.0
+Levenshtein>=0.27.3
