@@ -1,4 +1,4 @@
-requests>=2.32.3
+requests>=2.33.1
 yt-dlp>=2025.1.27
 yt-dlp-ejs
 pyyaml>=6.0.2
