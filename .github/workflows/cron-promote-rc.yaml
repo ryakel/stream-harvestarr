@@ -1,0 +1,93 @@
+name: Cron - Promote RC to Latest
+
+# Thursday job that retags the GHCR :rc digest as :latest on both
+# registries via `regctl image copy` -- a manifest copy by digest, not
+# a rebuild. The bytes promoted to :latest are exactly what was built
+# and pushed by cron-build-rc.yaml ~24h earlier (the soak window).
+#
+# Future enhancement (Item B from the cron design discussion):
+# dead-man's-switch gate that requires a fresh "soak passed" signal
+# from a residential-IP runner before promoting. Until that signal
+# exists, this workflow promotes unconditionally on schedule. See
+# the Promotion gate step below for where the check goes.
+
+on:
+  schedule:
+    - cron: '15 06 * * 4'  # Thu 06:15 UTC (24h after cron-build-rc.yaml)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # GHCR push
+
+jobs:
+  promote:
+    name: Promote :rc to :latest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # Required for peter-evans/dockerhub-description (reads ./README.md).
+        uses: actions/checkout@v6
+
+      - name: Promotion gate
+        # Placeholder for the dead-man's-switch (Item B). Once the
+        # residential-IP soak runner posts `LAST_SOAK_PASSED` to repo
+        # variables on each successful run, this step can check that
+        # the timestamp is within the freshness window (e.g. 30h)
+        # and exit non-zero otherwise. Today: pass-through.
+        run: |
+          if [ -n "${{ vars.LAST_SOAK_PASSED }}" ]; then
+            echo "::notice::soak signal present: ${{ vars.LAST_SOAK_PASSED }}"
+          else
+            echo "::notice::no soak signal configured -- promoting unconditionally (bootstrap mode)"
+          fi
+
+      - name: Login to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Install regctl
+        uses: regclient/actions/regctl-installer@main
+
+      - name: Resolve :rc digest
+        id: digest
+        env:
+          REPO: ghcr.io/ryakel/stream-harvestarr
+        run: |
+          set -euo pipefail
+          if ! DIGEST=$(regctl image digest "${REPO}:rc" 2>/dev/null); then
+            echo "::error::no :rc tag found at ${REPO} -- did Wednesday's build run?"
+            exit 1
+          fi
+          echo "Resolved ${REPO}:rc -> ${DIGEST}"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Promote :rc to :latest (GHCR + Docker Hub)
+        env:
+          DIGEST: ${{ steps.digest.outputs.digest }}
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+        run: |
+          set -euo pipefail
+          SRC="ghcr.io/ryakel/stream-harvestarr@${DIGEST}"
+          echo "Copying ${SRC} -> ghcr.io/ryakel/stream-harvestarr:latest"
+          regctl image copy "${SRC}" "ghcr.io/ryakel/stream-harvestarr:latest"
+          echo "Copying ${SRC} -> docker.io/${DOCKER_USERNAME}/stream-harvestarr:latest"
+          regctl image copy "${SRC}" "docker.io/${DOCKER_USERNAME}/stream-harvestarr:latest"
+
+      - name: Refresh Docker Hub description
+        uses: peter-evans/dockerhub-description@v5
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+          repository: ryakel/stream-harvestarr
+          enable-url-completion: true
