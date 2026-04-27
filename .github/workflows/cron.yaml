@@ -33,12 +33,13 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           custom_release_rules: major:major,breaking:major,minor:minor,patch:patch,fix:patch
-          # Only bump if commits since last tag warrant it. Without this, the
-          # weekly schedule cuts an empty-changelog release every Wednesday
-          # even when nothing has changed. The build still runs (it depends
-          # only on `prepare`) so :latest still picks up base-image security
-          # updates -- it just won't get a new vX.Y.Z tag from the rebake.
-          default_bump: false
+          # Bump every weekly run -- the *rebake itself* is the release.
+          # yt-dlp ships frequently to chase YouTube changes; Alpine ships
+          # base-image security patches; pip resolves >= constraints to
+          # whatever's current. Each Wednesday's image is genuinely
+          # different content even with no source changes, and a new
+          # vX.Y.Z lets users pin / roll back to a known-good week.
+          default_bump: patch
 
       - name: Create a GitHub release
         if: steps.tag_version.outputs.new_tag != ''
@@ -46,7 +47,18 @@ jobs:
         with:
           tag: ${{ steps.tag_version.outputs.new_tag }}
           name: Release ${{ steps.tag_version.outputs.new_tag }}
-          body: ${{ steps.tag_version.outputs.changelog }}
+          body: |
+            Weekly maintenance rebake. No source changes since last release.
+
+            Picks up whatever's current upstream:
+            - `python:3.14-alpine` base image (security patches)
+            - Alpine packages (ffmpeg, curl, deno, nodejs)
+            - Python deps satisfying current `requirements.txt` constraints
+              (notably yt-dlp, which ships frequently to track YouTube changes)
+
+            Pin to this tag for reproducibility, or follow `:latest` to track weekly.
+
+            ${{ steps.tag_version.outputs.changelog }}
 
   build-and-publish:
     name: Build and publish
