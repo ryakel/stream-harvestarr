@@ -426,10 +426,12 @@ class StreamHarvester(object):
         else:
             video_url = None
             if 'entries' in result and len(result['entries']) > 0:
-                try:
-                    video_url = result['entries'][0].get('url')
-                except Exception as e:
-                    logger.error(e)
+                for entry in result['entries']:
+                    if entry is None:
+                        continue
+                    video_url = entry.get('url')
+                    if video_url:
+                        break
             else:
                 video_url = result.get('url')
             if playlist == video_url:
