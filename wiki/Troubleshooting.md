@@ -139,6 +139,34 @@ series:
         replace: 'Ep\\1'
 ```
 
+### "No video_url"
+
+The matcher couldn't return a usable URL for the episode. Two distinct
+causes — check the debug log to tell them apart:
+
+**1. No entry in the playlist matched the Sonarr episode title.** The
+debug log shows several `"<title>" title did not match pattern` lines
+and **no** `[youtube] Extracting URL: ...` between them. Verify:
+
+- The episode actually exists in the configured playlist/channel as a
+  publicly viewable video. Open the playlist in an incognito browser
+  window to confirm.
+- If the episode appears as `[Private video]` in the log (yt-dlp also
+  prints `INFO - N unavailable videos are hidden`), yt-dlp can't read
+  its title. Supply cookies from an account that can see it, or wait
+  until the creator makes it public.
+- Your `regex.sonarr` rewrite produces a substring of the YouTube
+  title (case-insensitive). Compare them side-by-side in a debug-mode
+  log to confirm.
+
+**2. A matching entry was found, fully extracted, but the URL field
+came back empty.** The debug log shows `[youtube] Extracting URL: ...`
+followed by webpage download, deno JS challenge, and m3u8 information
+— *then* `No video_url`. This was a bug in older releases affecting
+HLS YouTube videos (most modern uploads); fixed in the release that
+addresses issue #114. Pull a current image (`:latest` or `:dev`) and
+re-run.
+
 ### Format Selection Errors
 
 If getting "No suitable format" errors:
