@@ -425,6 +425,15 @@ class StreamHarvester(object):
             logger.error(e)
         else:
             video_url = None
+            # Prefer webpage_url over url: yt-dlp's YouTube extractor only sets
+            # url when format selection picks a single non-merge format. HLS
+            # videos (most modern YouTube uploads) trigger ffmpeg audio+video
+            # merge — the "merged format" dict (YoutubeDL._merge) has
+            # requested_formats but no top-level url, so info_dict.update gives
+            # us an entry with .get('url') == None even though extraction
+            # succeeded. webpage_url is always set by the YouTube extractor
+            # directly; the .get('url') fallback covers other extractors that
+            # only populate url. See issue #114.
             if 'entries' in result and len(result['entries']) > 0:
                 for entry in result['entries']:
                     if entry is None:

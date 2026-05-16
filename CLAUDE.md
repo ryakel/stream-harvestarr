@@ -30,6 +30,39 @@ All work follows: **feature branch → `development` → `main`**.
   Treat it as required — if it goes red, fix the image rather than
   merging around it.
 
+## yt-dlp playlist matching gotchas
+
+`ytsearch()` in `app/stream_harvestarr.py` calls
+`yt_dlp.YoutubeDL.extract_info(playlist_url, download=False)` with
+`matchtitle` set to a regex built from the Sonarr episode name. Two
+non-obvious behaviors bit us in issue #114:
+
+1. **Matched entries don't always have a top-level `url` field.** The
+   YouTube extractor sets `info_dict['webpage_url']` directly (the
+   canonical `https://www.youtube.com/watch?v=ID` URL) but `url` is
+   only populated when format selection picks a *single* non-merge
+   format. HLS videos — the default for modern YouTube uploads —
+   trigger ffmpeg audio+video merge; the merged "format" dict built
+   in `YoutubeDL._merge` has `requested_formats` but no top-level
+   `url`. After `info_dict.update(best_format)`, `entry.get('url')`
+   returns None even though extraction succeeded (m3u8 manifest
+   downloaded, deno JS challenge solved, etc.). Always read
+   `entry.get('webpage_url') or entry.get('url')` — the fallback is
+   there for non-YouTube extractors that only populate `url`.
+
+2. **Reading webpage_url means the downstream `download()` call
+   re-extracts.** The previous "working" path passed a direct
+   Googlevideo stream URL to the second `ydl.download([dlurl])` call,
+   which silently ignored the configured `format`,
+   `merge_output_format`, and subtitle postprocessors (those options
+   only apply when yt-dlp starts from a webpage URL, not a raw stream
+   URL). Passing the watch URL costs an extra ~5s extraction per
+   download but makes the user's format/subtitle config actually work
+   and avoids stale auth-token 403s when downloads queue up.
+
+If you ever feel tempted to "simplify" back to `.get('url')`, don't —
+re-read #114 first.
+
 ## Adding new architectures
 
 If a new platform is added to `main.yaml` / `cron.yaml`, also add it to
