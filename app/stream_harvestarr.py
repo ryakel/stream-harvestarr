@@ -429,11 +429,11 @@ class StreamHarvester(object):
                 for entry in result['entries']:
                     if entry is None:
                         continue
-                    video_url = entry.get('url')
+                    video_url = entry.get('webpage_url') or entry.get('url')
                     if video_url:
                         break
             else:
-                video_url = result.get('url')
+                video_url = result.get('webpage_url') or result.get('url')
             if playlist == video_url:
                 return False, ''
             if video_url is None:
