@@ -219,6 +219,8 @@ series:
 | `url` | string | Required | Channel or playlist URL |
 | `format` | string | Optional | Override default format for this series |
 | `cookies_file` | string | Optional | Cookie file for authentication (relative to config dir) |
+| `username` | string | Optional | Username to access the service |
+| `password` | string | Optional |Assword to access the service |
 | `playlistreverse` | boolean | True | Process playlist in reverse order |
 | `offset` | object | Optional | Time offset for early access content |
 | `offset.weeks` | integer | Optional | Weeks to wait after air date |
