@@ -4,7 +4,7 @@ import yt_dlp
 import os
 import sys
 import re
-from utils import upperescape, checkconfig, offsethandler, safe_opts_summary, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
+from utils import upperescape, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
 from datetime import datetime
 import schedule
 import time
@@ -380,8 +380,6 @@ class StreamHarvester(object):
         return ytdlopts
 
     def ytsearch(self, ydl_opts, playlist):
-        if self.debug:
-            logger.debug('yt-dlp search opts: %s', safe_opts_summary(ydl_opts))
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result = ydl.extract_info(
@@ -490,8 +488,6 @@ class StreamHarvester(object):
                                     'progress_hooks': [ytdl_hooks_debug],
                                 })
                                 logger.debug('yt-dlp opts configured for downloading')
-                            if self.debug:
-                                logger.debug('yt-dlp download opts: %s', safe_opts_summary(ytdl_format_options))
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
                                      ydl.download([dlurl])
