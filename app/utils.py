@@ -71,15 +71,10 @@ def normalize_title(title):
     """Normalize a title for equality comparison against another title.
 
     Standardizes curly Unicode quotes to ASCII and strips leading/trailing
-    whitespace. Internal whitespace is preserved as-is. Logs when
-    normalization actually changes the input.
+    whitespace. Internal whitespace is preserved as-is. Pure: no logging,
+    so callers can drive the debug story from their own context.
     """
-    normalized = _normalize_quotes(title).strip()
-    if normalized != title:
-        logging.getLogger('stream_harvestarr').debug(
-            "normalize_title: {!r} -> {!r}".format(title, normalized)
-        )
-    return normalized
+    return _normalize_quotes(title).strip()
 
 
 def upperescape(string):
