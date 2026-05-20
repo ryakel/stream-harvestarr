@@ -235,13 +235,20 @@ class StreamHarvester(object):
         )
         return res.json()
 
+    def normalize_title(self, title):
+        """Normalize title for comparison by standardizing apostrophes and whitespace"""
+        normalized = title.replace("\u2019", "'").replace("\u2018", "'").strip()
+        if normalized != title:
+            logger.debug("normalize_title: {!r} -> {!r}".format(title, normalized))
+        return normalized
+
     def filterseries(self):
         """Return all series in Sonarr that are to be downloaded by yt-dlp"""
         series = self.get_series()
         matched = []
         for ser in series[:]:
             for wnt in self.series:
-                if wnt['title'] == ser['title']:
+                if self.normalize_title(wnt['title']) == self.normalize_title(ser['title']):
                     # Set default values
                     ser['subtitles'] = False
                     ser['playlistreverse'] = True
