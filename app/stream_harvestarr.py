@@ -267,6 +267,10 @@ class StreamHarvester(object):
                         ser['offset'] = wnt['offset']
                     if 'cookies_file' in wnt:
                         ser['cookies_file'] = wnt['cookies_file']
+                    if 'username' in wnt:
+                        ser['username'] = wnt['username']
+                    if 'password' in wnt:
+                        ser['password'] = wnt['password']
                     if 'format' in wnt:
                         ser['format'] = wnt['format']
                     if 'playlistreverse' in wnt:
@@ -349,6 +353,26 @@ class StreamHarvester(object):
         else:
             return ytdlopts
 
+    def appendcredentials(self, ytdlopts, username=None, password=None):
+        """Appends username and password to yt-dlp options if both are provided
+        - ``ytdlopts``: yt-dlp options to append credentials to
+        - ``username``: username to authenticate with
+        - ``password``: password to authenticate with
+        returns:
+            ytdlopts
+                original if username or password are missing
+                updated with username and password if both are provided
+        """
+        if username is not None and password is not None:
+            ytdlopts.update({
+                'username': username,
+                'password': password,
+            })
+            logger.debug('  Credentials loaded successfully')
+        elif username is not None or password is not None:
+            logger.warning('  username or password specified but both are required - skipping credentials')
+        return ytdlopts
+
     def customformat(self, ytdlopts, customformat=None):
         """Checks if specified cookie file exists in config
         - ``ytdlopts``: yt-dlp options to change the ytdl format for
@@ -366,7 +390,7 @@ class StreamHarvester(object):
         else:
             return ytdlopts
 
-    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None):
+    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None, username=None, password=None):
         ytdlopts = {
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
@@ -382,6 +406,7 @@ class StreamHarvester(object):
                 'progress_hooks': [ytdl_hooks],
             })
         ytdlopts = self.appendcookie(ytdlopts, cookies)
+        ytdlopts = self.appendcredentials(ytdlopts, username, password)
         if self.debug is True:
             logger.debug('yt-dlp opts configured for episode matching')
         return ytdlopts
@@ -431,10 +456,16 @@ class StreamHarvester(object):
                 for e, eps in enumerate(episodes):
                     if ser['id'] == eps['seriesId']:
                         cookies = None
+                        username = None
+                        password = None
                         url = ser['url']
                         if 'cookies_file' in ser:
                             cookies = ser['cookies_file']
-                        ydleps = self.ytdl_eps_search_opts(upperescape(eps['title']), ser['playlistreverse'], cookies)
+                        if 'username' in ser:
+                            username = ser['username']
+                        if 'password' in ser:
+                            password = ser['password']
+                        ydleps = self.ytdl_eps_search_opts(upperescape(eps['title']), ser['playlistreverse'], cookies, username, password)
                         found, dlurl = self.ytsearch(ydleps, url)
                         if found:
                             logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
@@ -466,6 +497,7 @@ class StreamHarvester(object):
                                 ytdl_format_options['sleep_interval_requests'] = self.sleep_requests
 
                             ytdl_format_options = self.appendcookie(ytdl_format_options, cookies)
+                            ytdl_format_options = self.appendcredentials(ytdl_format_options, username, password)
 
                             if 'format' in ser:
                                 ytdl_format_options = self.customformat(ytdl_format_options, ser['format'])
