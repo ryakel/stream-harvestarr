@@ -20,12 +20,38 @@ SENSITIVE_KEY_SUBSTRINGS = (
     'username',
 )
 
+# yt-dlp opts keys that are safe to dump verbatim in debug logs. Allowlist
+# by design: any key not listed (cookiefile, username, password, ...) is
+# dropped entirely so future sensitive options never accidentally leak.
+# This is what stream_harvestarr's own debug dumps use. yt-dlp's own log
+# messages still flow through YoutubeDLLogger + redact_sensitive separately.
+SAFE_OPTS_KEYS = frozenset({
+    'format', 'merge_output_format', 'outtmpl', 'quiet',
+    'noplaylist', 'forceipv4', 'sleep_interval', 'max_sleep_interval',
+    'nocontinue', 'nooverwrites', 'throttled_rate', 'concurrent_fragments',
+    'playlistreverse', 'ignoreerrors', 'matchtitle', 'match-filter',
+    'match_filter', 'writesubtitles', 'writeautomaticsub', 'subtitleslangs',
+    'postprocessors', 'js_runtimes', 'sleep_interval_requests',
+    'progress_hooks',
+})
+
 # Pre-compiled patterns for redacting secrets that appear inside strings
 # (URLs, JSON-ish blobs). Keep these narrow on purpose — any pattern
 # broad enough to chew on legitimate log content is worse than no
 # redaction at all, because users stop trusting the redacted output.
 _APIKEY_QUERY_RE = re.compile(r'(apikey=)[^&\s]+', re.IGNORECASE)
 _APIKEY_JSON_RE = re.compile(r'(api[_-]?key["\']?\s*:\s*["\']?)[^&\s,}"\']+', re.IGNORECASE)
+
+
+def safe_opts_summary(opts):
+    """Return a copy of a yt-dlp opts dict containing only allowlisted keys.
+
+    Used for debug-mode logging of opts. The allowlist is the safety
+    boundary: anything not on it (cookiefile path, username, password,
+    cookies-file path, future-added credentials) is dropped before the
+    dict ever reaches the logger.
+    """
+    return {k: opts[k] for k in opts if k in SAFE_OPTS_KEYS}
 
 
 def redact_sensitive(data):
