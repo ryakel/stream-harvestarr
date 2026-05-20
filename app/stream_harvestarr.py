@@ -4,7 +4,7 @@ import yt_dlp
 import os
 import sys
 import re
-from utils import upperescape, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
+from utils import upperescape, checkconfig, offsethandler, redact_sensitive, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
 from datetime import datetime
 import schedule
 import time
@@ -31,41 +31,6 @@ SCANINTERVAL = 60
 # node (installed on every image, including 386/armv7 where deno is not
 # packaged for Alpine).  See issue #96.
 JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
-
-
-def redact_sensitive(data):
-    """Redact sensitive information like API keys, cookies, and file paths from data for logging"""
-    import re
-
-    # Handle dictionaries
-    if isinstance(data, dict):
-        redacted = {}
-        sensitive_keys = ('apikey', 'api_key', 'cookie', 'cookies', 'cookiefile', 'cookies_file', 'password', 'token')
-        for key, value in data.items():
-            if any(sensitive in key.lower() for sensitive in sensitive_keys):
-                redacted[key] = '***REDACTED***'
-            elif isinstance(value, (dict, list)):
-                redacted[key] = redact_sensitive(value)
-            else:
-                redacted[key] = value
-        return redacted
-
-    # Handle lists
-    elif isinstance(data, list):
-        return [redact_sensitive(item) for item in data]
-
-    # Handle strings
-    elif isinstance(data, str):
-        # Redact apikey parameters in URLs
-        data = re.sub(r'(apikey=)[^&\s]+', r'\1***REDACTED***', data)
-        data = re.sub(r'(apikey["\']?\s*:\s*["\']?)[^&\s,}"\']+', r'\1***REDACTED***', data)
-        # Redact file paths that might contain sensitive info
-        data = re.sub(r'(/[^/]+)*/(cookies?|\.txt|\.json)', r'***REDACTED***/\2', data)
-        return data
-
-    # Convert other types to string and redact
-    else:
-        return redact_sensitive(str(data))
 
 
 class StreamHarvester(object):
@@ -415,6 +380,8 @@ class StreamHarvester(object):
         return ytdlopts
 
     def ytsearch(self, ydl_opts, playlist):
+        if self.debug:
+            logger.debug('yt-dlp search opts: %s', redact_sensitive(ydl_opts))
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result = ydl.extract_info(
@@ -523,6 +490,8 @@ class StreamHarvester(object):
                                     'progress_hooks': [ytdl_hooks_debug],
                                 })
                                 logger.debug('yt-dlp opts configured for downloading')
+                            if self.debug:
+                                logger.debug('yt-dlp download opts: %s', redact_sensitive(ytdl_format_options))
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
                                      ydl.download([dlurl])

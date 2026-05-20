@@ -11,6 +11,48 @@ CONFIGFILE = os.environ['CONFIGPATH']
 # CONFIGPATH = CONFIGFILE.replace('config.yml', '')
 
 
+# Substrings (case-insensitive) that mark a dict key as holding a secret.
+# Note on username: not a secret on its own, but it pairs with password in
+# yt-dlp opts and we'd rather not leak the pair when users share debug logs.
+SENSITIVE_KEY_SUBSTRINGS = (
+    'apikey', 'api_key', 'cookie', 'cookies', 'cookiefile', 'cookies_file',
+    'password', 'passwd', 'token', 'secret', 'credential', 'auth',
+    'username',
+)
+
+# Pre-compiled patterns for redacting secrets that appear inside strings
+# (URLs, JSON-ish blobs). Keep these narrow on purpose — any pattern
+# broad enough to chew on legitimate log content is worse than no
+# redaction at all, because users stop trusting the redacted output.
+_APIKEY_QUERY_RE = re.compile(r'(apikey=)[^&\s]+', re.IGNORECASE)
+_APIKEY_JSON_RE = re.compile(r'(api[_-]?key["\']?\s*:\s*["\']?)[^&\s,}"\']+', re.IGNORECASE)
+
+
+def redact_sensitive(data):
+    """Recursively redact secrets from data so it is safe to log.
+
+    Handles dicts (redacts values for sensitive keys), lists (recurses),
+    and strings (redacts known URL/JSON apikey patterns). Other scalars
+    are returned unchanged so types are preserved for ``%s`` formatting.
+    """
+    if isinstance(data, dict):
+        redacted = {}
+        for key, value in data.items():
+            key_str = str(key).lower()
+            if any(s in key_str for s in SENSITIVE_KEY_SUBSTRINGS):
+                redacted[key] = '***REDACTED***'
+            else:
+                redacted[key] = redact_sensitive(value)
+        return redacted
+    if isinstance(data, (list, tuple)):
+        return type(data)(redact_sensitive(item) for item in data)
+    if isinstance(data, str):
+        data = _APIKEY_QUERY_RE.sub(r'\1***REDACTED***', data)
+        data = _APIKEY_JSON_RE.sub(r'\1***REDACTED***', data)
+        return data
+    return data
+
+
 def upperescape(string):
     """Uppercase and Escape string. Used to help with YT-DL regex match.
     - ``string``: string to manipulate
@@ -103,21 +145,28 @@ def offsethandler(airdate, offset):
 
 
 class YoutubeDLLogger(object):
+    """Bridge yt-dlp's logging into our logger with secrets redacted.
+
+    yt-dlp's verbose output can echo the full opts dict (including
+    cookiefile paths and any username/password) and URLs containing
+    Sonarr-style apikey query params. Route every message through
+    redact_sensitive so debug logs are safe to share in bug reports.
+    """
 
     def __init__(self):
         self.logger = logging.getLogger('stream_harvestarr')
 
     def info(self, msg: str) -> None:
-        self.logger.info(msg)
+        self.logger.info(redact_sensitive(msg))
 
     def debug(self, msg: str) -> None:
-        self.logger.debug(msg)
+        self.logger.debug(redact_sensitive(msg))
 
     def warning(self, msg: str) -> None:
-        self.logger.info(msg)
+        self.logger.info(redact_sensitive(msg))
 
     def error(self, msg: str) -> None:
-        self.logger.error(msg)
+        self.logger.error(redact_sensitive(msg))
 
 
 def ytdl_hooks_debug(d):
