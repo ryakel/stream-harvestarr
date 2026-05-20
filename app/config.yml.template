@@ -31,6 +31,13 @@ series:
     url: https://www.youtube.com/channel/UCUK0HBIBWgM2c4vsPhkYY4w
     cookies_file: youtube_cookies.txt # located in the same config folder
     format: bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best
+  # Example using username/password authentication for sites that require it.
+  # Both fields are required together; supplying only one is ignored.
+  # Make sure config.yml is chmod 600 — these credentials are stored in plaintext.
+  # - title: Some Authenticated Series
+  #   url: https://example.com/some/series
+  #   username: your-username
+  #   password: your-password
   # Youtube playlist of latest season with time offset, useful for member videos having early release
   - title: CHUMP
     url: https://www.youtube.com/playlist?list=PLUBVPK8x-XMiVzV098TtYq55awkA2XmXm
