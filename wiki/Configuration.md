@@ -24,6 +24,16 @@ cp config.yml.template config.yml
 nano config.yml
 ```
 
+### Protecting the config file
+
+`config.yml` holds plaintext secrets — the Sonarr `apikey` and any per-series `password` / `cookies_file` you configure. Restrict its permissions so other users on the host can't read it, and never commit it to a repository:
+
+```bash
+chmod 600 /path/to/your/config/config.yml
+```
+
+If you're running in Docker, the file is on the host alongside the bind-mounted config volume — apply the same `chmod` there.
+
 ## Stream Harvestarr Settings
 
 ### Basic Settings
@@ -252,7 +262,7 @@ series:
 | `format` | string | Optional | Override default format for this series |
 | `cookies_file` | string | Optional | Cookie file for authentication (relative to config dir) |
 | `username` | string | Optional | Username to access the service |
-| `password` | string | Optional |Assword to access the service |
+| `password` | string | Optional | Password to access the service |
 | `playlistreverse` | boolean | True | Process playlist in reverse order |
 | `offset` | object | Optional | Time offset for early access content |
 | `offset.weeks` | integer | Optional | Weeks to wait after air date |
