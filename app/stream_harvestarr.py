@@ -4,7 +4,7 @@ import yt_dlp
 import os
 import sys
 import re
-from utils import upperescape, normalize_title, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
+from utils import upperescape, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
 from datetime import datetime
 import schedule
 import time
@@ -31,6 +31,40 @@ SCANINTERVAL = 60
 # node (installed on every image, including 386/armv7 where deno is not
 # packaged for Alpine).  See issue #96.
 JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
+
+
+def redact_sensitive(data):
+    """Redact sensitive information like API keys, cookies, and file paths from data for logging"""
+
+    # Handle dictionaries
+    if isinstance(data, dict):
+        redacted = {}
+        sensitive_keys = ('apikey', 'api_key', 'cookie', 'cookies', 'cookiefile', 'cookies_file', 'password', 'token')
+        for key, value in data.items():
+            if any(sensitive in key.lower() for sensitive in sensitive_keys):
+                redacted[key] = '***REDACTED***'
+            elif isinstance(value, (dict, list)):
+                redacted[key] = redact_sensitive(value)
+            else:
+                redacted[key] = value
+        return redacted
+
+    # Handle lists
+    elif isinstance(data, list):
+        return [redact_sensitive(item) for item in data]
+
+    # Handle strings
+    elif isinstance(data, str):
+        # Redact apikey parameters in URLs
+        data = re.sub(r'(apikey=)[^&\s]+', r'\1***REDACTED***', data)
+        data = re.sub(r'(apikey["\']?\s*:\s*["\']?)[^&\s,}"\']+', r'\1***REDACTED***', data)
+        # Redact file paths that might contain sensitive info
+        data = re.sub(r'(/[^/]+)*/(cookies?|\.txt|\.json)', r'***REDACTED***/\2', data)
+        return data
+
+    # Convert other types to string and redact
+    else:
+        return redact_sensitive(str(data))
 
 
 class StreamHarvester(object):
@@ -140,19 +174,6 @@ class StreamHarvester(object):
         except Exception as e:
             sys.exit("Error with series config.yml values: {e}")
 
-        # Services setup - optional, provides base config for series to inherit from
-        try:
-            self.services = {}
-            for svc in cfg.get('services', []):
-                self.services[svc['title']] = svc
-            if self.services:
-                logger.info('Loaded {} service(s): {}'.format(
-                    len(self.services), ', '.join(self.services.keys())
-                ))
-        except Exception:
-            self.services = {}
-            logger.warning('Error loading services config, continuing without services')
-
         # Merge output format
         try:
             self.ytdl_merge_output_format = cfg["ytdl"]["merge_output_format"]
@@ -190,8 +211,7 @@ class StreamHarvester(object):
         """Derive zero-padding width from a Sonarr format string for a given token.
         e.g. parse_number_format('S{season:00}E{episode:00}', 'episode') -> 2
         e.g. parse_number_format('S{season}E{episode}', 'episode') -> 0 (no padding)"""
-        import re
-        match = re.search(r'\{{{}(:0+)?\}}'.format(token), format_string)
+        match = re.search(r'\{{{}(?::(0+))?\}}'.format(token), format_string)
         if match and match.group(1):
             return len(match.group(1))
         return 0
@@ -297,88 +317,13 @@ class StreamHarvester(object):
         )
         return res.json()
 
-    def merge_service_config(self, wnt):
-        # Merge a service config into a series config entry.
-        # Resolution order (highest to lowest priority):
-        #   1. Series-level key (explicitly present in YAML)
-        #   2. Service-level key (from the named service)
-        #   3. Absent (defaults applied later in filterseries)
-        # URL: if series url is not absolute, it is joined onto the service url.
-
-        if 'service' not in wnt:
-            return wnt
-
-        service_name = wnt['service']
-
-        if service_name not in self.services:
-            logger.warning('Series "{}" references unknown service "{}" - ignoring'.format(
-                wnt.get('title', '?'), service_name
-            ))
-            return wnt
-
-        svc = self.services[service_name]
-        logger.debug('Merging service "{}" into series "{}"'.format(service_name, wnt.get('title', '?')))
-
-        # Copy series config so we never mutate the original YAML-parsed dict
-        merged = dict(wnt)
-
-        # Inheritable keys: series value wins if present, else fall back to service
-        inheritable_keys = ('username', 'password', 'cookies_file', 'format',
-                            'playlistreverse', 'offset', 'subtitles', 'regex')
-        for key in inheritable_keys:
-            if key not in merged and key in svc:
-                merged[key] = svc[key]
-                logger.debug('  Inherited {} from service "{}"'.format(key, service_name))
-
-        # URL resolution
-        svc_url = svc.get('url', '')
-        series_url = merged.get('url', '')
-
-        if not series_url:
-            # No series url at all - use service url directly
-            merged['url'] = svc_url
-            logger.debug('  URL inherited from service: {}'.format(svc_url))
-        elif not series_url.startswith('http'):
-            # Relative path - join onto service base url
-            base = svc_url.rstrip('/')
-            path = series_url.lstrip('/')
-            merged['url'] = '{}/{}'.format(base, path)
-            logger.debug('  URL joined from service: {}'.format(merged['url']))
-        else:
-            # Absolute URL provided — verify it shares the same domain as the service
-            # to prevent credentials/cookies inherited from the service being sent to
-            # a different site than intended.
-            svc_domain = urllib.parse.urlparse(svc_url).netloc
-            series_domain = urllib.parse.urlparse(series_url).netloc
-
-            if svc_domain and series_domain != svc_domain:
-                logger.warning(
-                    '  Series "{}" uses service "{}" but URL domain "{}" does not match '
-                    'service domain "{}". Credentials and cookies will NOT be inherited '
-                    'to avoid sending them to an unintended site. '
-                    'Use a relative URL or move credentials to the series directly.'.format(
-                        wnt.get('title', '?'), service_name, series_domain, svc_domain
-                    )
-                )
-                # Strip inherited credentials and cookies from merged config
-                for cred_key in ('username', 'password', 'cookies_file'):
-                    if cred_key in merged and cred_key not in wnt:
-                        del merged[cred_key]
-                        logger.debug('  Removed inherited {} due to domain mismatch'.format(cred_key))
-            else:
-                logger.debug('  Absolute URL domain matches service domain - credentials retained')
-
-        return merged
-
     def filterseries(self):
         """Return all series in Sonarr that are to be downloaded by yt-dlp"""
         series = self.get_series()
         matched = []
         for ser in series[:]:
             for wnt in self.series:
-                if normalize_title(wnt['title']) == normalize_title(ser['title']):
-                    # Merge service config before reading any keys (series overrides service)
-                    wnt = self.merge_service_config(wnt)
+                if wnt['title'] == ser['title']:
                     # Set default values
                     ser['subtitles'] = False
                     ser['playlistreverse'] = True
@@ -397,10 +342,6 @@ class StreamHarvester(object):
                         ser['offset'] = wnt['offset']
                     if 'cookies_file' in wnt:
                         ser['cookies_file'] = wnt['cookies_file']
-                    if 'username' in wnt:
-                        ser['username'] = wnt['username']
-                    if 'password' in wnt:
-                        ser['password'] = wnt['password']
                     if 'format' in wnt:
                         ser['format'] = wnt['format']
                     if 'playlistreverse' in wnt:
@@ -483,26 +424,6 @@ class StreamHarvester(object):
         else:
             return ytdlopts
 
-    def appendcredentials(self, ytdlopts, username=None, password=None):
-        """Appends username and password to yt-dlp options if both are provided
-        - ``ytdlopts``: yt-dlp options to append credentials to
-        - ``username``: username to authenticate with
-        - ``password``: password to authenticate with
-        returns:
-            ytdlopts
-                original if username or password are missing
-                updated with username and password if both are provided
-        """
-        if username is not None and password is not None:
-            ytdlopts.update({
-                'username': username,
-                'password': password,
-            })
-            logger.debug('  Credentials loaded successfully')
-        elif username is not None or password is not None:
-            logger.warning('  username or password specified but both are required - skipping credentials')
-        return ytdlopts
-
     def customformat(self, ytdlopts, customformat=None):
         """Checks if specified cookie file exists in config
         - ``ytdlopts``: yt-dlp options to change the ytdl format for
@@ -520,7 +441,7 @@ class StreamHarvester(object):
         else:
             return ytdlopts
 
-    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None, username=None, password=None):
+    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None):
         ytdlopts = {
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
@@ -536,7 +457,6 @@ class StreamHarvester(object):
                 'progress_hooks': [ytdl_hooks],
             })
         ytdlopts = self.appendcookie(ytdlopts, cookies)
-        ytdlopts = self.appendcredentials(ytdlopts, username, password)
         if self.debug is True:
             logger.debug('yt-dlp opts configured for episode matching')
         return ytdlopts
@@ -586,29 +506,24 @@ class StreamHarvester(object):
                 for e, eps in enumerate(episodes):
                     if ser['id'] == eps['seriesId']:
                         cookies = None
-                        username = None
-                        password = None
                         url = ser['url']
                         if 'cookies_file' in ser:
                             cookies = ser['cookies_file']
-                        if 'username' in ser:
-                            username = ser['username']
-                        if 'password' in ser:
-                            password = ser['password']
-                        ydleps = self.ytdl_eps_search_opts(upperescape(eps['title']), ser['playlistreverse'], cookies, username, password)
+                        ydleps = self.ytdl_eps_search_opts(upperescape(eps['title']), ser['playlistreverse'], cookies)
                         found, dlurl = self.ytsearch(ydleps, url)
                         if found:
                             logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
+                            season = self.format_season(eps['seasonNumber'])
+                            episode = self.format_episode(eps['episodeNumber'])
                             ytdl_format_options = {
                                 'format': self.ytdl_format,
                                 'quiet': True,
                                 "merge_output_format": self.ytdl_merge_output_format,
                                 'outtmpl': '/sonarr_root{0}/Season {1}/{2} - S{3}E{4} - {5} WEBDL.%(ext)s'.format(
                                     ser['path'],
-                                    self.format_season(eps['seasonNumber']),
+                                    season,
                                     ser['title'],
-                                    self.format_season(eps['seasonNumber']),
-                                    self.format_episode(eps['episodeNumber']),
+                                    episode,
                                     eps['title']
                                 ),
                                 'progress_hooks': [ytdl_hooks],
@@ -628,7 +543,6 @@ class StreamHarvester(object):
                                 ytdl_format_options['sleep_interval_requests'] = self.sleep_requests
 
                             ytdl_format_options = self.appendcookie(ytdl_format_options, cookies)
-                            ytdl_format_options = self.appendcredentials(ytdl_format_options, username, password)
 
                             if 'format' in ser:
                                 ytdl_format_options = self.customformat(ytdl_format_options, ser['format'])
@@ -642,17 +556,14 @@ class StreamHarvester(object):
                                     postprocessors.append({
                                         'key': 'FFmpegEmbedSubtitle',
                                     })
-                                    # filterseries() seeds this to a Python bool (False)
-                                    # before optionally overriding with the user's YAML
-                                    # string, so handle both shapes.
-                                    autosubs_raw = ser['subtitles_autogenerated']
-                                    autosubs = autosubs_raw if isinstance(autosubs_raw, bool) else autosubs_raw.lower() in ['true', 't', 'y', 'yes']
+                                    autosubs = ser['subtitles_autogenerated'].lower() in ['true','t', 'y', 'yes']
                                     ytdl_format_options.update({
                                         'writesubtitles': True,
                                         'writeautomaticsub': autosubs,
                                         'subtitleslangs': ser['subtitles_languages'],
                                         'postprocessors': postprocessors,
                                     })
+
 
                             if self.debug is True:
                                 ytdl_format_options.update({
