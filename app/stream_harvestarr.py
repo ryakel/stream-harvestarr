@@ -140,6 +140,19 @@ class StreamHarvester(object):
         except Exception as e:
             sys.exit("Error with series config.yml values: {e}")
 
+        # Services setup - optional, provides base config for series to inherit from
+        try:
+            self.services = {}
+            for svc in cfg.get('services', []):
+                self.services[svc['title']] = svc
+            if self.services:
+                logger.info('Loaded {} service(s): {}'.format(
+                    len(self.services), ', '.join(self.services.keys())
+                ))
+        except Exception:
+            self.services = {}
+            logger.warning('Error loading services config, continuing without services')
+
         # Merge output format
         try:
             self.ytdl_merge_output_format = cfg["ytdl"]["merge_output_format"]
@@ -235,6 +248,54 @@ class StreamHarvester(object):
         )
         return res.json()
 
+    def merge_service_config(self, wnt):
+        # Merge a service config into a series config entry.
+        # Resolution order (highest to lowest priority):
+        #   1. Series-level key (explicitly present in YAML)
+        #   2. Service-level key (from the named service)
+        #   3. Absent (defaults applied later in filterseries)
+        # URL: if series url is not absolute, it is joined onto the service url.
+
+        if 'service' not in wnt:
+            return wnt
+
+        service_name = wnt['service']
+        if service_name not in self.services:
+            logger.warning('Series "{}" references unknown service "{}" - ignoring'.format(
+                wnt.get('title', '?'), service_name
+            ))
+            return wnt
+
+        svc = self.services[service_name]
+        logger.debug('Merging service "{}" into series "{}"'.format(service_name, wnt.get('title', '?')))
+
+        # Copy series config so we never mutate the original YAML-parsed dict
+        merged = dict(wnt)
+
+        # Inheritable keys: series value wins if present, else fall back to service
+        inheritable_keys = ('username', 'password', 'cookies_file', 'format',
+                            'playlistreverse', 'offset', 'subtitles', 'regex')
+        for key in inheritable_keys:
+            if key not in merged and key in svc:
+                merged[key] = svc[key]
+                logger.debug('  Inherited {} from service "{}"'.format(key, service_name))
+
+        # URL resolution
+        svc_url = svc.get('url', '')
+        series_url = merged.get('url', '')
+        if not series_url:
+            # No series url at all - use service url directly
+            merged['url'] = svc_url
+            logger.debug('  URL inherited from service: {}'.format(svc_url))
+        elif not series_url.startswith('http'):
+            # Relative path - join onto service base url
+            base = svc_url.rstrip('/')
+            path = series_url.lstrip('/')
+            merged['url'] = '{}/{}'.format(base, path)
+            logger.debug('  URL joined from service: {}'.format(merged['url']))
+
+        return merged
+
     def filterseries(self):
         """Return all series in Sonarr that are to be downloaded by yt-dlp"""
         series = self.get_series()
@@ -242,6 +303,8 @@ class StreamHarvester(object):
         for ser in series[:]:
             for wnt in self.series:
                 if normalize_title(wnt['title']) == normalize_title(ser['title']):
+                    # Merge service config before reading any keys (series overrides service)
+                    wnt = self.merge_service_config(wnt)
                     # Set default values
                     ser['subtitles'] = False
                     ser['playlistreverse'] = True
