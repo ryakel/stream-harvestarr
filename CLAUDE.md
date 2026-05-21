@@ -42,6 +42,49 @@ If you're picking up a session mid-flight (handoff context, resumed
 work), don't assume a prior session's "yes" carries over — ask again.
 Session-bounded intent is the safer default.
 
+## Label conventions
+
+Four namespaces, applied by Claude on every PR Claude opens or reviews.
+The namespaces answer different questions, so multiple may apply to
+one PR. Existing flat labels (`bug`, `enhancement`, `dependencies`,
+etc.) are kept for historical consistency but not applied on new work.
+
+- `intent:` — decision state on `feat(...)` PRs. Values:
+  `needs-decision`, `approved`, `declined`, `deferred`. Open a
+  `feat(...)` PR with `intent: needs-decision`; the user's stage-1
+  answer replaces it. Non-`feat` PRs skip this namespace.
+- `type:` — change category from the conventional-commit prefix.
+  Values: `feat`, `fix`, `chore`, `docs`, `refactor`, `deps`, `ci`.
+  Exactly one per PR.
+- `area:` — codebase region. Values: `docker`, `extractor`,
+  `scheduler`, `sonarr`, `config`, `workflows`, `docs`, `unraid`.
+  Multiple allowed when a PR genuinely spans regions.
+- `status:` — ephemeral PR-state. Values: `needs-tests`,
+  `breaking-change`, `needs-rebase`. Add when the condition holds;
+  remove when resolved. Not all PRs carry a `status:` label.
+
+### Legacy labels — handle, don't apply
+
+- `bug` / `enhancement` — superseded by `type: fix` / `type: feat`.
+  Don't add to new PRs; leave alone where already applied.
+- `dependencies` — Dependabot applies this automatically. Don't strip
+  it. Claude does not also add `type: deps` on Dependabot PRs — the
+  auto-label is operative.
+- `Stale` — managed by `stale.yaml`. Never rename (the workflow
+  references it by exact name).
+- `awaiting-approval`, `wip` — exempt-from-stale markers per
+  `stale.yaml`. Apply when a PR/issue is intentionally paused.
+- `good first issue`, `question`, `python` — keep as-is. Community
+  signaling and Dependabot's ecosystem tag.
+
+### Provisioning
+
+Labels are created by `.github/workflows/labels-bootstrap.yaml`
+(`workflow_dispatch` only). Trigger from the Actions UI when adding
+new namespace values, or if a label gets deleted. The workflow is
+idempotent: `gh label create --force` updates color/description on
+existing labels without dropping any historical applications.
+
 ## Merging
 
 - **Never merge into `main`.** No exceptions. If a PR targets `main`
