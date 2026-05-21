@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Container version="2">
     <Name>stream-harvestarr</Name>
-    <Repository>ryakel/stream-harvestarr</Repository>
+    <Repository>ryakel/stream-harvestarr:latest</Repository>
     <Registry>https://hub.docker.com/r/ryakel/stream-harvestarr/</Registry>
     <Network>bridge</Network>
     <MyIP/>
