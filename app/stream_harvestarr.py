@@ -260,6 +260,7 @@ class StreamHarvester(object):
             return wnt
 
         service_name = wnt['service']
+
         if service_name not in self.services:
             logger.warning('Series "{}" references unknown service "{}" - ignoring'.format(
                 wnt.get('title', '?'), service_name
@@ -283,6 +284,7 @@ class StreamHarvester(object):
         # URL resolution
         svc_url = svc.get('url', '')
         series_url = merged.get('url', '')
+
         if not series_url:
             # No series url at all - use service url directly
             merged['url'] = svc_url
@@ -293,6 +295,29 @@ class StreamHarvester(object):
             path = series_url.lstrip('/')
             merged['url'] = '{}/{}'.format(base, path)
             logger.debug('  URL joined from service: {}'.format(merged['url']))
+        else:
+            # Absolute URL provided — verify it shares the same domain as the service
+            # to prevent credentials/cookies inherited from the service being sent to
+            # a different site than intended.
+            svc_domain = urllib.parse.urlparse(svc_url).netloc
+            series_domain = urllib.parse.urlparse(series_url).netloc
+
+            if svc_domain and series_domain != svc_domain:
+                logger.warning(
+                    '  Series "{}" uses service "{}" but URL domain "{}" does not match '
+                    'service domain "{}". Credentials and cookies will NOT be inherited '
+                    'to avoid sending them to an unintended site. '
+                    'Use a relative URL or move credentials to the series directly.'.format(
+                        wnt.get('title', '?'), service_name, series_domain, svc_domain
+                    )
+                )
+                # Strip inherited credentials and cookies from merged config
+                for cred_key in ('username', 'password', 'cookies_file'):
+                    if cred_key in merged and cred_key not in wnt:
+                        del merged[cred_key]
+                        logger.debug('  Removed inherited {} due to domain mismatch'.format(cred_key))
+            else:
+                logger.debug('  Absolute URL domain matches service domain - credentials retained')
 
         return merged
 
