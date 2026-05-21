@@ -37,7 +37,7 @@ Please update your image and config.yml if migrating from the old image.
     <ExtraParams>--restart=unless-stopped</ExtraParams>
     <PostArgs/>
     <CPUset/>
-    <DonateText>If you found this helpful, buying me a coffee.</DonateText>
+    <DonateText>If you found this helpful, please consider buying me a coffee.</DonateText>
     <DonateLink>https://www.buymeacoffee.com/ryakel</DonateLink>
     <Requires/>
 
