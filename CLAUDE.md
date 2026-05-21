@@ -14,6 +14,51 @@ All work follows: **feature branch → `development` → `main`**.
 - Keep `development` in sync with `main` after every release so the next
   feature branch starts from a clean base.
 
+## PR review workflow (guardrails)
+
+Two-stage check before any `APPROVE` lands on a PR — applies to both
+contributor PRs and Claude-authored PRs.
+
+**Stage 1 — project-intent check (features only).** For any `feat(...)`
+PR, before doing the technical review, ask the user via
+`AskUserQuestion` whether this is a feature the project wants. Wait
+for an explicit "yes" recorded in the session before doing the deep
+review or submitting `APPROVE`. If the user says "no" / "not now",
+post a `COMMENT` review explaining the position and leave the PR
+open without an approve. Do not silently sit on it.
+
+`fix(...)`, `chore(...)`, `docs(...)`, `refactor(...)` PRs skip
+stage 1 — bug fixes are inherently in-scope, cleanups don't expand
+surface area. Go straight to stage 2 at Claude's discretion.
+
+**Stage 2 — technical review.** Submit `REQUEST_CHANGES` for any
+blocking issue. Submit `APPROVE` only when **both** are true:
+
+1. Technical review is clean (no blockers, CI green).
+2. For `feat(...)`: the user gave an explicit documented "yes" in
+   this session for this PR.
+
+If you're picking up a session mid-flight (handoff context, resumed
+work), don't assume a prior session's "yes" carries over — ask again.
+Session-bounded intent is the safer default.
+
+## Merging
+
+- **Never merge into `main`.** No exceptions. If a PR targets `main`
+  directly, immediately submit `REQUEST_CHANGES` asking for it to be
+  retargeted to `development`. GitHub branch protection on `main` is
+  the defense-in-depth (the maintainer sets that up server-side); the
+  rule here is the in-Claude tripwire.
+- **Promoting `development → main` is a maintainer-only action.**
+  Claude does not open the promotion PR and does not merge it. If the
+  user explicitly asks Claude to *prepare* the diff for the
+  promotion, that's fine — but the PR-create and merge buttons are
+  human-only.
+- For PRs targeting `development`: after `APPROVE` is submitted and
+  CI is green, Claude may merge (regular merge, matching the
+  repository's history). For `feat(...)` PRs, the stage-1 documented
+  "yes" must already be on record before the merge.
+
 ## Container build expectations
 
 - The image is `python:3.14-alpine` based.
