@@ -1,0 +1,315 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Stream Harvestarr Configuration",
+  "description": "Schema for Stream Harvestarr config.yml",
+  "type": "object",
+  "required": ["streamharvestarr", "sonarr", "ytdl", "series"],
+  "additionalProperties": false,
+  "properties": {
+    "streamharvestarr": {
+      "type": "object",
+      "description": "Core Stream Harvestarr application settings.",
+      "required": ["scan_interval", "debug"],
+      "additionalProperties": false,
+      "properties": {
+        "scan_interval": {
+          "type": "integer",
+          "description": "Minutes between each scan for new episodes.",
+          "minimum": 1,
+          "default": 1,
+          "examples": [1, 5, 60]
+        },
+        "debug": {
+          "type": "boolean",
+          "description": "Enable verbose logging output.",
+          "default": false
+        },
+        "download_delay": {
+          "type": "integer",
+          "description": "Seconds to wait between downloads. Recommended: 5-10 for rate limit prevention.",
+          "minimum": 0,
+          "default": 0,
+          "examples": [0, 5, 10]
+        },
+        "sleep_requests": {
+          "type": "integer",
+          "description": "Seconds to wait between API requests to streaming sites. Recommended: 1-3 for rate limit prevention.",
+          "minimum": 0,
+          "default": 0,
+          "examples": [0, 1, 3]
+        },
+        "rate_limit_sleep": {
+          "type": "integer",
+          "description": "Initial wait time in seconds when rate limited. Default is 900 (15 minutes). YouTube suggests up to 1 hour.",
+          "minimum": 0,
+          "default": 900,
+          "examples": [900, 1800, 3600]
+        },
+        "exponential_backoff": {
+          "type": "boolean",
+          "description": "Enable exponential backoff when repeatedly rate limited.",
+          "default": true
+        },
+        "backoff_multiplier": {
+          "type": "number",
+          "description": "Multiply wait time by this factor on each subsequent rate limit.",
+          "exclusiveMinimum": 0,
+          "default": 2.0,
+          "examples": [1.5, 2.0, 3.0]
+        },
+        "backoff_max": {
+          "type": "integer",
+          "description": "Maximum backoff time in seconds.",
+          "minimum": 1,
+          "default": 3600,
+          "examples": [1800, 3600, 7200]
+        }
+      }
+    },
+    "sonarr": {
+      "type": "object",
+      "description": "Connection settings for the Sonarr instance.",
+      "required": ["host", "port", "apikey", "ssl"],
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Sonarr server IP address or hostname.",
+          "examples": ["192.168.1.123", "sonarr.local", "localhost"]
+        },
+        "port": {
+          "type": "integer",
+          "description": "Sonarr port number. Default Sonarr port is 8989.",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8989,
+          "examples": [8989]
+        },
+        "apikey": {
+          "type": "string",
+          "description": "Sonarr API key, found in Sonarr under Settings → General → Security.",
+          "minLength": 1,
+          "examples": ["1234567890abcdef1234567890abcdef"]
+        },
+        "ssl": {
+          "type": "boolean",
+          "description": "Use HTTPS instead of HTTP when connecting to Sonarr.",
+          "default": false
+        },
+        "basedir": {
+          "type": "string",
+          "description": "Base URL path if Sonarr runs behind a reverse proxy (e.g. '/sonarr').",
+          "pattern": "^/",
+          "examples": ["/sonarr"]
+        },
+        "version": {
+          "type": "string",
+          "description": "Set to 'v4' if running Sonarr v4 beta to enable v3 API endpoint compatibility.",
+          "enum": ["v3", "v4"],
+          "examples": ["v4"]
+        }
+      }
+    },
+    "ytdl": {
+      "type": "object",
+      "description": "Global YT-DLP download settings applied to all series unless overridden.",
+      "required": ["default_format", "merge_output_format"],
+      "additionalProperties": false,
+      "properties": {
+        "default_format": {
+          "type": "string",
+          "description": "Default YT-DLP format selector string. See https://github.com/yt-dlp/yt-dlp#format-selection for syntax.",
+          "minLength": 1,
+          "examples": [
+            "bestvideo[width<=1920]+bestaudio/best[width<=1920]",
+            "bestvideo[height<=1080]+bestaudio/best[height<=1080]",
+            "bestvideo+bestaudio/best",
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+          ]
+        },
+        "merge_output_format": {
+          "type": "string",
+          "description": "Output container format when merging video and audio streams.",
+          "enum": ["avi", "flv", "mkv", "mov", "mp4", "webm"],
+          "default": "mkv"
+        }
+      }
+    },
+    "series": {
+      "type": "array",
+      "description": "List of series to monitor and download.",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/series_entry"
+      }
+    }
+  },
+  "definitions": {
+    "series_entry": {
+      "type": "object",
+      "description": "A single series to monitor.",
+      "required": ["title", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Series name. Must match the series title in Sonarr exactly.",
+          "minLength": 1,
+          "examples": ["Smarter Every Day", "The Slow Mo Guys"]
+        },
+        "url": {
+          "type": "string",
+          "description": "YouTube channel or playlist URL to monitor.",
+          "format": "uri",
+          "examples": [
+            "https://www.youtube.com/channel/UC6107grRI4m0o2-emgoDnAA",
+            "https://www.youtube.com/playlist?list=PLxxxxxxxx"
+          ]
+        },
+        "format": {
+          "type": "string",
+          "description": "Override the global default_format for this series. See https://github.com/yt-dlp/yt-dlp#format-selection.",
+          "minLength": 1,
+          "examples": [
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "bestvideo[height<=720]+bestaudio/best[height<=720]",
+            "bestvideo[height<=2160]+bestaudio/best"
+          ]
+        },
+        "cookies_file": {
+          "type": "string",
+          "description": "Filename of the Netscape-format cookie file for authenticated content. Must be located in the config directory. Ensure the file has chmod 600 permissions.",
+          "minLength": 1,
+          "examples": ["youtube_cookies.txt"]
+        },
+        "username": {
+          "type": "string",
+          "description": "Username for sites requiring authentication. Must be used together with 'password'.",
+          "minLength": 1
+        },
+        "password": {
+          "type": "string",
+          "description": "Password for sites requiring authentication. Must be used together with 'username'. Ensure config.yml is chmod 600.",
+          "minLength": 1
+        },
+        "playlistreverse": {
+          "type": "boolean",
+          "description": "Process playlist in reverse order (oldest first). Set to False to process newest-first.",
+          "default": true
+        },
+        "offset": {
+          "$ref": "#/definitions/offset"
+        },
+        "subtitles": {
+          "$ref": "#/definitions/subtitles"
+        },
+        "regex": {
+          "$ref": "#/definitions/regex"
+        }
+      },
+      "dependencies": {
+        "username": ["password"],
+        "password": ["username"]
+      }
+    },
+    "offset": {
+      "type": "object",
+      "description": "Delay downloading an episode until this amount of time has passed after the air date. Useful for member early-access or embargoed content. All fields are optional and additive.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "weeks": {
+          "type": "integer",
+          "description": "Number of weeks to wait after the air date.",
+          "minimum": 0,
+          "examples": [1, 2]
+        },
+        "days": {
+          "type": "integer",
+          "description": "Number of days to wait after the air date.",
+          "minimum": 0,
+          "examples": [2, 3, 7]
+        },
+        "hours": {
+          "type": "integer",
+          "description": "Number of hours to wait after the air date.",
+          "minimum": 0,
+          "examples": [3, 6, 12]
+        },
+        "minutes": {
+          "type": "integer",
+          "description": "Number of minutes to wait after the air date.",
+          "minimum": 0,
+          "examples": [30, 60]
+        }
+      }
+    },
+    "subtitles": {
+      "type": "object",
+      "description": "Subtitle download settings for this series.",
+      "additionalProperties": false,
+      "properties": {
+        "languages": {
+          "type": "array",
+          "description": "List of ISO 639-1 language codes for subtitles to download.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "description": "ISO 639-1 two-letter language code.",
+            "minLength": 2,
+            "maxLength": 5,
+            "examples": ["en", "es", "fr", "de", "it", "pt", "ja", "ko", "zh", "ru", "ar"]
+          },
+          "default": ["en"],
+          "examples": [["en"], ["en", "es"], ["en", "es", "fr", "de"]]
+        },
+        "autogenerated": {
+          "type": "boolean",
+          "description": "Include auto-generated subtitles (e.g. YouTube auto-captions) in addition to manual subtitles.",
+          "default": false
+        }
+      }
+    },
+    "regex": {
+      "type": "object",
+      "description": "Regular expression patterns to transform episode titles before matching. Useful when YouTube and TVDB use different naming conventions.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "sonarr": {
+          "$ref": "#/definitions/regex_rule",
+          "description": "Transform the title as it appears in Sonarr before matching."
+        },
+        "site": {
+          "$ref": "#/definitions/regex_rule",
+          "description": "Transform the title as retrieved from the streaming site before matching."
+        }
+      }
+    },
+    "regex_rule": {
+      "type": "object",
+      "description": "A single find-and-replace regex rule.",
+      "required": ["match", "replace"],
+      "additionalProperties": false,
+      "properties": {
+        "match": {
+          "type": "string",
+          "description": "Python-flavour regular expression pattern to find in the title.",
+          "minLength": 1,
+          "examples": [
+            ".-.#[0-9]*$",
+            "^Ep([0-9]+)",
+            "^S[0-9]+E",
+            "\\s*\\([^)]+\\)$"
+          ]
+        },
+        "replace": {
+          "type": "string",
+          "description": "Replacement string. Use \\1, \\2, etc. for capture group back-references.",
+          "examples": ["", "Episode \\1", "E", ": \\1"]
+        }
+      }
+    }
+  }
+}

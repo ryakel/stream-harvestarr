@@ -1,3 +1,7 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/ryakel/stream-harvestarr/main/app/config-schema.json
+## Do not remove the above line
+## This file is a template remove the .template to use the file
+
 streamharvestarr:
     scan_interval: 1  # minutes between scans
     debug: False  # Set to True for a more verbose output
@@ -11,7 +15,7 @@ streamharvestarr:
 sonarr:
     host: 192.168.1.123
     port: 8989  # sonarr default port
-    apikey: 12341234
+    apikey: "12341234"
     ssl: false
     # basedir: '/sonarr'  # if you have sonarr running with a basedir set (e.g. behind a proxy)
     # version: v4 # if running v4 beta, allows the v3 api endpoints
