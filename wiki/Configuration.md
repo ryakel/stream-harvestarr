@@ -8,6 +8,7 @@ This guide covers all configuration options available in Stream Harvestarr's `co
 - [Stream Harvestarr Settings](#stream-harvestarr-settings)
 - [Sonarr Connection](#sonarr-connection)
 - [YT-DLP Settings](#yt-dlp-settings)
+- [Services Configuration](#services-configuration)
 - [Series Configuration](#series-configuration)
 - [Rate Limiting Configuration](#rate-limiting-configuration)
 
@@ -154,6 +155,36 @@ default_format: bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best
 
 For more format options, see the [YT-DLP format selection documentation](https://github.com/yt-dlp/yt-dlp#format-selection).
 
+## Services Configuration
+
+Services allow you to define shared configuration (credentials, subtitles, offset, etc.) that multiple series can inherit. This avoids repeating the same settings across every series entry.
+
+```yaml
+services:
+  - title: YouTube Members
+    url: https://www.youtube.com/
+    cookies_file: youtube_cookies.txt
+    subtitles:
+      languages: ['en']
+    offset:
+      days: 3
+```
+
+| Setting | Type | Required | Description |
+|---------|------|----------|-------------|
+| `title` | string | Yes | Service name, referenced by series via `service:` key |
+| `url` | string | Yes | Base URL of the service |
+| `username` | string | No | Username for authentication |
+| `password` | string | No | Password for authentication |
+| `cookies_file` | string | No | Cookie file for authentication (relative to config dir) |
+| `format` | string | No | Default format override for all series using this service |
+| `playlistreverse` | boolean | No | Default playlist order for series using this service |
+| `offset` | object | No | Default time offset for series using this service |
+| `subtitles` | object | No | Default subtitle config for series using this service |
+| `regex` | object | No | Default regex matching for series using this service |
+
+Series-level settings always override service-level settings. See [Services](Advanced-Features#services) in the Advanced Features guide for full details and examples.
+
 ## Series Configuration
 
 Define which series to monitor and download.
@@ -226,7 +257,8 @@ series:
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `title` | string | Required | Series name (must match Sonarr exactly) |
-| `url` | string | Required | Channel or playlist URL |
+| `url` | string | Required | Channel, playlist URL, or path relative to service URL |
+| `service` | string | Optional | Service name to inherit shared configuration from |
 | `format` | string | Optional | Override default format for this series |
 | `cookies_file` | string | Optional | Cookie file for authentication (relative to config dir) |
 | `username` | string | Optional | Username to access the service |
@@ -269,8 +301,22 @@ ytdl:
     default_format: bestvideo[width<=1920]+bestaudio/best[width<=1920]
     merge_output_format: "mkv"
 
+services:
+  - title: YouTube Members
+    url: https://www.youtube.com/
+    cookies_file: youtube_cookies.txt
+    subtitles:
+      languages: ['en']
+    offset:
+      days: 3
+
 series:
-  # Standard channel
+  # Using a service - inherits url base, cookies, subtitles, offset
+  - title: Smarter Every Day
+    service: YouTube Members
+    url: channel/UC6107grRI4m0o2-emgoDnAA
+
+  # Standard channel (no service)
   - title: Smarter Every Day
     url: https://www.youtube.com/channel/UC6107grRI4m0o2-emgoDnAA
 
