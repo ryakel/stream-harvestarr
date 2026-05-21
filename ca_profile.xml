@@ -1,0 +1,9 @@
+<CommunityApplications>
+  <Profile>
+    Describe what users will find in this repository, which apps or plugins you maintain, and where they should go for support.
+  </Profile>
+  <Icon>https://avatars.githubusercontent.com/u/662755?v=4</Icon>
+  <WebPage>https://github.com/ryakel/stream-harvestarr</WebPage>
+  <DonateText>If you found my work helpful, please consider buying me a coffee.</DonateText>
+  <DonateLink>https://www.buymeacoffee.com/ryakel</DonateLink>
+</CommunityApplications>
