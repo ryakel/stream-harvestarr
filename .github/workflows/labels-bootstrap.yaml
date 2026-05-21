@@ -1,0 +1,68 @@
+name: Labels Bootstrap
+
+# Idempotent one-shot to create / refresh the namespaced label taxonomy
+# documented in CLAUDE.md ("Label conventions"). Trigger from the Actions
+# UI when labels drift, get deleted, or when adding new entries below.
+# Re-running is harmless; --force overwrites color/description but
+# preserves all existing label applications on issues and PRs.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create / refresh labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          labels=(
+            # intent: decision state on feat(...) PRs (stage-1 of review workflow)
+            "intent: needs-decision|D4C5F9|Feature PR awaiting maintainer in-scope decision"
+            "intent: approved|0E8A16|Maintainer confirmed in-scope; ready for technical review"
+            "intent: declined|5C5C5C|Maintainer declined; closed or open for discussion only"
+            "intent: deferred|BFD4F2|In-scope but parked for later"
+
+            # type: change category (from conventional-commit prefix)
+            "type: feat|A2EEEF|New feature or capability"
+            "type: fix|D73A4A|Bug fix"
+            "type: chore|FEF2C0|Maintenance / cleanup; no user-facing change"
+            "type: docs|0075CA|Documentation only"
+            "type: refactor|BFD4F2|Internal restructuring; no behavior change"
+            "type: deps|0366D6|Dependency version bump"
+            "type: ci|006B75|CI / GitHub Actions workflow change"
+
+            # area: which part of the codebase
+            "area: docker|5319E7|Dockerfile, image layers, runtime install"
+            "area: extractor|E99695|yt-dlp invocation, format selection, playlist matching"
+            "area: scheduler|F9D0C4|Schedule polling, cron scheduling"
+            "area: sonarr|35C5F0|Sonarr API integration"
+            "area: config|FBCA04|config.yaml parsing, env var handling"
+            "area: workflows|1D76DB|GitHub Actions workflow files"
+            "area: docs|7057FF|README, wiki, CLAUDE.md, code comments"
+            "area: unraid|F1502F|Unraid community template"
+
+            # status: ephemeral PR-state markers
+            "status: needs-tests|FBCA04|Touches behavior but lacks coverage"
+            "status: breaking-change|B60205|User-visible breaking change"
+            "status: needs-rebase|E99695|Has merge conflicts; author needs to update"
+          )
+
+          for entry in "${labels[@]}"; do
+            IFS='|' read -r name color desc <<< "$entry"
+            echo "::group::${name}"
+            gh label create "$name" \
+              --color "$color" \
+              --description "$desc" \
+              --force \
+              --repo "$GITHUB_REPOSITORY"
+            echo "::endgroup::"
+          done
