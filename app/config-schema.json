@@ -135,46 +135,45 @@
         }
       }
     },
-    "series": {
+    "services": {
       "type": "array",
-      "description": "List of series to monitor and download.",
+      "description": "Optional list of named service definitions. A service holds shared configuration (credentials, cookies, subtitles, offset, etc.) that series can inherit by referencing the service's title. Any key set at the series level overrides the same key from the service.",
       "minItems": 1,
       "items": {
-        "$ref": "#/definitions/series_entry"
+        "$ref": "#/definitions/service_entry"
+      }
+    },
+    "series": {
+      "type": "array",
+      "description": "List of series to monitor and download. Each entry is either standalone (full URL, no service key) or service-linked (service name + relative URL path).",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/definitions/series_standalone" },
+          { "$ref": "#/definitions/series_linked" }
+        ]
       }
     }
   },
   "definitions": {
-    "series_entry": {
+
+    "service_entry": {
       "type": "object",
-      "description": "A single series to monitor.",
+      "description": "A named service definition providing shared configuration for series that reference it.",
       "required": ["title", "url"],
       "additionalProperties": false,
       "properties": {
         "title": {
           "type": "string",
-          "description": "Series name. Must match the series title in Sonarr exactly.",
+          "description": "Unique name for this service. Series reference it via the 'service' key.",
           "minLength": 1,
-          "examples": ["Smarter Every Day", "The Slow Mo Guys"]
+          "examples": ["YouTube Members", "Patreon"]
         },
         "url": {
           "type": "string",
-          "description": "YouTube channel or playlist URL to monitor.",
+          "description": "Base URL for the service. Series using this service provide a relative path that is joined onto this URL.",
           "format": "uri",
-          "examples": [
-            "https://www.youtube.com/channel/UC6107grRI4m0o2-emgoDnAA",
-            "https://www.youtube.com/playlist?list=PLxxxxxxxx"
-          ]
-        },
-        "format": {
-          "type": "string",
-          "description": "Override the global default_format for this series. See https://github.com/yt-dlp/yt-dlp#format-selection.",
-          "minLength": 1,
-          "examples": [
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-            "bestvideo[height<=720]+bestaudio/best[height<=720]",
-            "bestvideo[height<=2160]+bestaudio/best"
-          ]
+          "examples": ["https://www.youtube.com/", "https://www.patreon.com/"]
         },
         "cookies_file": {
           "type": "string",
@@ -192,9 +191,18 @@
           "description": "Password for sites requiring authentication. Must be used together with 'username'. Ensure config.yml is chmod 600.",
           "minLength": 1
         },
+        "format": {
+          "type": "string",
+          "description": "Default YT-DLP format string for all series on this service. Can be overridden per-series.",
+          "minLength": 1,
+          "examples": [
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "bestvideo[height<=1080]+bestaudio/best[height<=1080]"
+          ]
+        },
         "playlistreverse": {
           "type": "boolean",
-          "description": "Process playlist in reverse order (oldest first). Set to False to process newest-first.",
+          "description": "Default playlist processing order for series on this service. Can be overridden per-series.",
           "default": true
         },
         "offset": {
@@ -212,6 +220,132 @@
         "password": ["username"]
       }
     },
+
+    "series_shared_overridable": {
+      "description": "Overridable fields that can be set at service level and overridden at series level.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Series name. Must match the series title in Sonarr exactly.",
+          "minLength": 1,
+          "examples": ["Smarter Every Day", "The Slow Mo Guys"]
+        },
+        "format": {
+          "type": "string",
+          "description": "Override the format for this series. Falls back to the service format, then to ytdl.default_format.",
+          "minLength": 1,
+          "examples": [
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "bestvideo[height<=720]+bestaudio/best[height<=720]",
+            "bestvideo[height<=2160]+bestaudio/best"
+          ]
+        },
+        "cookies_file": {
+          "type": "string",
+          "description": "Override the cookie file for this series. Falls back to the service cookies_file.",
+          "minLength": 1,
+          "examples": ["youtube_cookies.txt"]
+        },
+        "username": {
+          "type": "string",
+          "description": "Override the username for this series. Must be used together with 'password'.",
+          "minLength": 1
+        },
+        "password": {
+          "type": "string",
+          "description": "Override the password for this series. Must be used together with 'username'.",
+          "minLength": 1
+        },
+        "playlistreverse": {
+          "type": "boolean",
+          "description": "Override the playlist processing order for this series.",
+          "default": true
+        },
+        "offset": {
+          "$ref": "#/definitions/offset"
+        },
+        "subtitles": {
+          "$ref": "#/definitions/subtitles"
+        },
+        "regex": {
+          "$ref": "#/definitions/regex"
+        }
+      }
+    },
+
+    "series_standalone": {
+      "type": "object",
+      "description": "A standalone series with a full absolute URL. Does not inherit from any service.",
+      "required": ["title", "url"],
+      "additionalProperties": false,
+      "allOf": [{ "$ref": "#/definitions/series_shared_overridable" }],
+      "properties": {
+        "title": {},
+        "url": {
+          "type": "string",
+          "description": "Full absolute URL of the YouTube channel or playlist to monitor.",
+          "format": "uri",
+          "examples": [
+            "https://www.youtube.com/channel/UC6107grRI4m0o2-emgoDnAA",
+            "https://www.youtube.com/playlist?list=PLxxxxxxxx"
+          ]
+        },
+        "format": {},
+        "cookies_file": {},
+        "username": {},
+        "password": {},
+        "playlistreverse": {},
+        "offset": {},
+        "subtitles": {},
+        "regex": {}
+      },
+      "not": {
+        "required": ["service"]
+      },
+      "dependencies": {
+        "username": ["password"],
+        "password": ["username"]
+      }
+    },
+
+    "series_linked": {
+      "type": "object",
+      "description": "A series that inherits shared configuration from a named service. The 'url' is a relative path joined onto the service's base URL. Any key set here overrides the same key from the service.",
+      "required": ["title", "service", "url"],
+      "additionalProperties": false,
+      "allOf": [{ "$ref": "#/definitions/series_shared_overridable" }],
+      "properties": {
+        "title": {},
+        "service": {
+          "type": "string",
+          "description": "Name of the service to inherit configuration from. Must match the 'title' of an entry in the top-level 'services' list.",
+          "minLength": 1,
+          "examples": ["YouTube Members", "Patreon"]
+        },
+        "url": {
+          "type": "string",
+          "description": "Relative URL path appended to the service's base URL to form the full channel or playlist URL (e.g. 'channel/UCxxxxxxxx' or 'playlist?list=PLxxxxxxxx').",
+          "minLength": 1,
+          "examples": [
+            "channel/UC6107grRI4m0o2-emgoDnAA",
+            "playlist?list=PLxxxxxxxx"
+          ]
+        },
+        "format": {},
+        "cookies_file": {},
+        "username": {},
+        "password": {},
+        "playlistreverse": {},
+        "offset": {},
+        "subtitles": {},
+        "regex": {}
+      },
+      "dependencies": {
+        "username": ["password"],
+        "password": ["username"]
+      }
+    },
+
     "offset": {
       "type": "object",
       "description": "Delay downloading an episode until this amount of time has passed after the air date. Useful for member early-access or embargoed content. All fields are optional and additive.",
@@ -244,9 +378,10 @@
         }
       }
     },
+
     "subtitles": {
       "type": "object",
-      "description": "Subtitle download settings for this series.",
+      "description": "Subtitle download settings.",
       "additionalProperties": false,
       "properties": {
         "languages": {
@@ -271,6 +406,7 @@
         }
       }
     },
+
     "regex": {
       "type": "object",
       "description": "Regular expression patterns to transform episode titles before matching. Useful when YouTube and TVDB use different naming conventions.",
@@ -287,6 +423,7 @@
         }
       }
     },
+
     "regex_rule": {
       "type": "object",
       "description": "A single find-and-replace regex rule.",
@@ -311,5 +448,6 @@
         }
       }
     }
+
   }
 }
