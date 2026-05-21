@@ -31,6 +31,17 @@ Before using Stream Harvestarr, you need:
 4. **Edit configuration** - Add your Sonarr details and series
 5. **Start the container** - Stream Harvestarr will begin monitoring
 
+### Unraid
+Stream Harvestarr is available as a community template in the Unraid Community Applications store.
+
+1. Open the **Apps** tab in Unraid and search for `stream-harvestarr`
+2. Click **Install** and review the template settings:
+   - **Appdata** — path to store `config.yml` and application state (default: `/mnt/user/appdata/stream-harvestarr`)
+   - **Sonarr Root** — must match the root folder path configured in Sonarr (default: `/mnt/user/data/media/tv/`)
+   - **Logs** — path for log output (default: `/mnt/user/appdata/stream-harvestarr/logs`)
+3. Click **Apply** to start the container
+4. Copy the config template and edit it before the first real run:
+
 ## Documentation Sections
 
 ### [Upgrading Guide](Upgrading)
