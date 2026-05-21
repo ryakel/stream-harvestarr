@@ -53,6 +53,30 @@ def redact_sensitive(data):
     return data
 
 
+def _normalize_quotes(string):
+    """Replace common Unicode curly quote characters with their ASCII equivalents.
+
+    Shared by normalize_title (pre-match) and upperescape (pre-regex) so the
+    two paths can't drift on which curly variants they recognize.
+    """
+    return (string
+        .replace('’', "'")  # right single quotation mark
+        .replace('‘', "'")  # left single quotation mark
+        .replace('“', '"')  # left double quotation mark
+        .replace('”', '"')  # right double quotation mark
+    )
+
+
+def normalize_title(title):
+    """Normalize a title for equality comparison against another title.
+
+    Standardizes curly Unicode quotes to ASCII and strips leading/trailing
+    whitespace. Internal whitespace is preserved as-is. Pure: no logging,
+    so callers can drive the debug story from their own context.
+    """
+    return _normalize_quotes(title).strip()
+
+
 def upperescape(string):
     """Uppercase and Escape string. Used to help with YT-DL regex match.
     - ``string``: string to manipulate
@@ -62,10 +86,8 @@ def upperescape(string):
     """
     # UPPERCASE as YTDL is case insensitive for ease.
     string = string.upper()
-    # Remove quote characters as YTDL converts these.
-    string = string.replace('’',"'")
-    string = string.replace('“','"')
-    string = string.replace('”','"')
+    # Normalize Unicode curly quotes to ASCII (shared with normalize_title).
+    string = _normalize_quotes(string)
     # Replace >1 space with single space
     string = re.sub(" +", " ", string)
     # Escape the characters
