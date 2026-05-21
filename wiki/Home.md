@@ -41,6 +41,10 @@ Stream Harvestarr is available as a community template in the Unraid Community A
    - **Logs** — path for log output (default: `/mnt/user/appdata/stream-harvestarr/logs`)
 3. Click **Apply** to start the container
 4. Copy the config template and edit it before the first real run:
+   ```bash
+   docker exec stream-harvestarr cp /app/config.yml.template /config/config.yml
+   # Then edit /config/config.yml with your Sonarr API key and series settings
+   ```
 
 ## Documentation Sections
 
