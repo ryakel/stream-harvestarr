@@ -10,6 +10,7 @@
     <PrivilegedReq>false</PrivilegedReq>
     <Support>https://github.com/ryakel/stream-harvestarr/issues</Support>
     <Project>https://github.com/ryakel/stream-harvestarr</Project>
+    <ReadMe>https://github.com/ryakel/stream-harvestarr/wiki</ReadMe>
     <Overview>A Sonarr companion script to allow the automatic downloading of web series normally not available for Sonarr to search for.</Overview>
     <Description>
 A Sonarr companion script to allow the automatic downloading of web series normally not available for Sonarr to search for. Using YT-DLP (a youtube-dl fork with added features) it allows you to download your webseries from the list of supported sites.
