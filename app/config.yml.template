@@ -72,4 +72,4 @@ series:
   # Example using a service for shared config — inherits cookies, subtitles and offset
   - title: Veritasium
     service: YouTube Members
-     url: channel/UCHnyfMqiRRG1u-2MsSQLbXA
+    url: channel/UCHnyfMqiRRG1u-2MsSQLbXA
