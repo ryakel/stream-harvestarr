@@ -10,6 +10,7 @@ This guide covers advanced configuration options and use cases for Stream Harves
 - [Time Offsets](#time-offsets)
 - [Regex Title Matching](#regex-title-matching)
 - [Playlist Handling](#playlist-handling)
+- [Services](#services)
 - [Multiple Series Management](#multiple-series-management)
 
 ## Cookie Authentication
@@ -494,6 +495,73 @@ url: https://www.youtube.com/channel/UCxxxxxxxx
 2. URL shows: `youtube.com/playlist?list=PLxxxxxxxx`
 3. Copy entire URL including `list=` parameter
 
+## Services
+
+Services let you define shared configuration once and have multiple series inherit from it. This is ideal when several shows come from the same streaming platform and share the same credentials, subtitle preferences, or other settings.
+
+### Defining a Service
+
+```yaml
+services:
+  - title: YouTube Members
+    url: https://www.youtube.com/
+    cookies_file: youtube_cookies.txt
+    subtitles:
+      languages: ['en']
+    offset:
+      days: 3
+```
+
+### Referencing a Service from a Series
+
+Use the `service` key and provide a relative URL path — it will be joined onto the service's base URL:
+
+```yaml
+series:
+  - title: Smarter Every Day
+    service: YouTube Members
+    url: channel/UC6107grRI4m0o2-emgoDnAA
+```
+
+### Overriding Service Settings
+
+Any key set at the series level overrides the same key from the service. Keys absent from the series fall back to the service, then to built-in defaults:
+
+```yaml
+services:
+  - title: YouTube Members
+    url: https://www.youtube.com/
+    cookies_file: youtube_cookies.txt
+    subtitles:
+      languages: ['en']
+    offset:
+      days: 3
+
+series:
+  - title: The Slow Mo Guys
+    service: YouTube Members
+    url: channel/UCUK0HBIBWgM2c4vsPhkYY4w
+    offset:
+      days: 7   # Overrides the service's 3-day offset
+    subtitles:
+      languages: ['en', 'es']  # Overrides service subtitles
+```
+
+### Overridable Keys
+
+All of the following can be set at service level and overridden at series level:
+
+| Key | Description |
+|-----|-------------|
+| `username` | Login username |
+| `password` | Login password |
+| `cookies_file` | Cookie file path |
+| `format` | yt-dlp format string |
+| `playlistreverse` | Playlist processing order |
+| `offset` | Air date offset |
+| `subtitles` | Subtitle configuration |
+| `regex` | Title matching patterns |
+
 ## Multiple Series Management
 
 Best practices for managing many series.
@@ -535,21 +603,9 @@ series:
 
 ### Shared Configuration
 
-Some settings apply to all matching series:
+For shared credentials, subtitles, or other settings across multiple series from the same platform, use the [Services](#services) feature to avoid repetition.
 
-**Cookies can be shared:**
-```yaml
-series:
-  - title: Channel A - Members
-    url: https://youtube.com/channel/...
-    cookies_file: youtube_cookies.txt
-
-  - title: Channel A - Public
-    url: https://youtube.com/channel/...
-    cookies_file: youtube_cookies.txt  # Same cookies
-```
-
-**Format can be defined per-series:**
+**Format can still be defined per-series:**
 ```yaml
 series:
   - title: 4K Content
