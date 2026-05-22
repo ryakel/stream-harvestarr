@@ -15,6 +15,11 @@ if [ "$PUID" != "911" ] || [ "$PGID" != "1000" ]; then
     adduser -D -u "$PUID" -h /config -s /bin/false -G ytdlpg ytdlp
 fi
 
-chown -R "$PUID:$PGID" /config /logs
+current_uid=$(stat -c "%u" /config)
+current_gid=$(stat -c "%g" /config)
+
+if [ "$current_uid" != "$PUID" ] || [ "$current_gid" != "$PGID" ]; then
+    chown -R "$PUID:$PGID" /config /logs
+fi
 
 exec su-exec "$PUID:$PGID" python -u /app/stream_harvestarr.py
