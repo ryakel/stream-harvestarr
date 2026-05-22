@@ -7,7 +7,7 @@ UMASK=${UMASK:-002}
 
 umask "$UMASK"
 
-if [ "$PUID" != "991" ] || [ "$PGID" != "1000" ]; then
+if [ "$PUID" != "911" ] || [ "$PGID" != "1000" ]; then
     deluser ytdlp 2>/dev/null || true
     delgroup ytdlpg 2>/dev/null || true
 
