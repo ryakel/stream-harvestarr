@@ -33,7 +33,7 @@ Please update your image and config.yml if migrating from the old image.
     <Category>MediaApp:Video</Category>
     <WebUI/>
     <TemplateURL>https://raw.githubusercontent.com/ryakel/stream-harvestarr/main/unraid-templates/stream-harvestarr.xml</TemplateURL>
-    <Icon/>
+    <Icon>https://raw.githubusercontent.com/ryakel/stream-harvestarr/main/img/stream-harvestarr-logo_small.png</Icon>
     <ExtraParams>--restart=unless-stopped</ExtraParams>
     <PostArgs/>
     <CPUset/>
