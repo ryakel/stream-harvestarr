@@ -1,5 +1,4 @@
 ![Screen Harvester logo](/img/stream-harvestarr-logo_small.png)
-
 # Stream Harvestarr by [@ryakel](https://github.com/ryakel)
 
 ![Docker Pulls](https://img.shields.io/docker/pulls/ryakel/stream-harvestarr?style=flat-square)
@@ -7,9 +6,9 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Docker Hub](https://img.shields.io/badge/Open%20On-DockerHub-blue)](https://hub.docker.com/r/ryakel/stream-harvestarr)
 
-⚠️ NOTE: The image name and repo have changed to ``ryakel/stream-havestarr``.
-``ryakel/sonarr-yt-dlp`` has been deprecated as of version ``1.2.17``.
-Please update your image and update your config.yml. ⚠️
+:warning: NOTE: The image name and repo have changed to ```ryakel/stream-havestarr```. 
+```ryakel/sonarr-yt-dlp``` has been deprecated as of version ```1.2.17```. 
+Please update your image and update your config.yml. :warning:
 
 [ryakel/stream-harvestarr](https://github.com/ryakel/stream-harvestarr) is a [Sonarr](https://sonarr.tv/) companion script to allow the automatic downloading of web series normally not available for Sonarr to search for. Using [YT-DLP](https://github.com/yt-dlp/yt-dlp) (a youtube-dl fork with added features) it allows you to download your webseries from the list of [supported sites](https://github.com/yt-dlp/yt-dlp/blob/master/supportedsites.md).
 
@@ -29,29 +28,28 @@ Please update your image and update your config.yml. ⚠️
 **For detailed documentation, configuration guides, and troubleshooting, visit the [Stream Harvestarr Wiki](https://github.com/ryakel/stream-harvestarr/wiki)**
 
 Key documentation sections:
-
 - [Configuration Guide](https://github.com/ryakel/stream-harvestarr/wiki/Configuration) - Complete configuration reference
-- [Rate Limiting &amp; Performance](https://github.com/ryakel/stream-harvestarr/wiki/Rate-Limiting) - Handling YouTube rate limits
+- [Rate Limiting & Performance](https://github.com/ryakel/stream-harvestarr/wiki/Rate-Limiting) - Handling YouTube rate limits
 - [Troubleshooting](https://github.com/ryakel/stream-harvestarr/wiki/Troubleshooting) - Common issues and solutions
 - [Advanced Features](https://github.com/ryakel/stream-harvestarr/wiki/Advanced-Features) - Cookies, subtitles, regex, and more
 
 ## How do I use it
 
 1. Firstly you need a series that is available online in the supported sites that YouTube-DL can grab from.
-2. Secondly you need to add the series to Sonarr (the way you would any other) and monitor the episodes that you want.
-3. Thirdly edit your config.yml accordingly so that this knows where your Sonarr is, which series you are after and where to grab it from.
-4. Lastly be aware that this requires the TVDB to match exactly what the episodes titles are in the scan, generally this is ok but as its an openly editable site sometime there can be differences.
+1. Secondly you need to add the series to Sonarr (the way you would any other) and monitor the episodes that you want.
+1. Thirdly edit your config.yml accordingly so that this knows where your Sonarr is, which series you are after and where to grab it from.
+1. Lastly be aware that this requires the TVDB to match exactly what the episodes titles are in the scan, generally this is ok but as its an openly editable site sometime there can be differences.
 
 ## Supported Architectures
 
 The following **Linux** architectures supported by this image are:
 
-|   Architectures   | Tag    | JS runtime for yt-dlp                                  |
-| :----------------: | ------ | ------------------------------------------------------ |
-| arm64`<br>`amd64 | latest | deno (yt-dlp's recommended sandboxed runtime)          |
-|  armv7`<br>`386  | latest | node (deno is not packaged on Alpine for these arches) |
-| arm64`<br>`amd64 | dev    | deno                                                   |
-|  armv7`<br>`386  | dev    | node                                                   |
+| Architectures | Tag | JS runtime for yt-dlp |
+| :----: | --- | --- |
+| arm64<br>amd64 | latest | deno (yt-dlp's recommended sandboxed runtime) |
+| armv7<br>386 | latest | node (deno is not packaged on Alpine for these arches) |
+| arm64<br>amd64 | dev | deno |
+| armv7<br>386 | dev | node |
 
 YouTube extraction works on all four arches. The `armv7` and `386` images
 fall back to `nodejs` because Alpine doesn't ship a `deno` package for
@@ -59,15 +57,15 @@ them; if yt-dlp ever requires deno-specific extractor features, those
 arches may lag behind `amd64` / `arm64`. amd64 and arm64 remain the
 recommended targets.
 
-🗒 ARM builds have been restored as of v1.3.3. 🗒
+:spiral_notepad: ARM builds have been restored as of v1.3.3. :spiral_notepad:	
 
 ## Version Tags
 
-|   Tag   | Description                                                                           |
-| :-----: | ------------------------------------------------------------------------------------- |
-| latest | Current release code                                                                  |
-|   dev   | Pre-release code for testing issues                                                   |
-| v.X.Y.Z | Versions matching[GitHub Releases](https://github.com/ryakel/stream-harvestarr/releases) |
+| Tag | Description |
+| :----: | --- |
+| latest | Current release code |
+| dev | Pre-release code for testing issues |
+| v.X.Y.Z | Versions matching [GitHub Releases](https://github.com/ryakel/stream-harvestarr/releases) |
 
 ## Great how do I get started
 
@@ -108,11 +106,11 @@ services:
 
 ### Docker volumes
 
-|      Parameter      | Function                                    |
-| :-----------------: | ------------------------------------------- |
-|   `-v /config`   | Stream Harvestarr configs                   |
+| Parameter | Function |
+| :----: | --- |
+| `-v /config` | Stream Harvestarr configs |
 | `-v /sonarr_root` | Root library location from Sonarr container |
-|    `-v /logs`    | log location                                |
+| `-v /logs` | log location |
 
 **Clarification on sonarr_root**
 
@@ -137,7 +135,6 @@ To take advantage of the new rate limiting features, you can optionally add thes
 If you found this helpful, please consider donating below.
 
 <!-- markdownlint-disable MD033 -->
-
 <a href="https://www.buymeacoffee.com/ryakel" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/lato-black.png" alt="Buy Me A Coffee" style="height: 51px !important;width: 217px !important;" ></a>
 <!-- markdownlint-enable MD033 -->
 
