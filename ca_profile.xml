@@ -1,0 +1,9 @@
+<CommunityApplications>
+  <Profile>
+    Stream Harvestarr is a Sonarr companion script that automatically downloads web series from supported streaming sites using YT-DLP. It enables automatic downloading of series not available for Sonarr to search for natively, with smart rate limiting, format customization, and direct Sonarr integration. Visit the GitHub repository for documentation, issue tracking, and migration guides from the deprecated ryakel/sonarr-yt-dlp image.
+  </Profile>
+  <Icon>https://avatars.githubusercontent.com/u/662755?v=4</Icon>
+  <WebPage>https://github.com/ryakel/stream-harvestarr</WebPage>
+  <DonateText>If you found my work helpful, please consider buying me a coffee.</DonateText>
+  <DonateLink>https://www.buymeacoffee.com/ryakel</DonateLink>
+</CommunityApplications>

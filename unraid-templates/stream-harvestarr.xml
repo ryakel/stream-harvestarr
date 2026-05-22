@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<Container version="2">
+    <Name>stream-harvestarr</Name>
+    <Repository>ryakel/stream-harvestarr:latest</Repository>
+    <Registry>https://hub.docker.com/r/ryakel/stream-harvestarr/</Registry>
+    <Network>bridge</Network>
+    <MyIP/>
+    <Shell>sh</Shell>
+    <Privileged>false</Privileged>
+    <PrivilegedReq>false</PrivilegedReq>
+    <Support>https://github.com/ryakel/stream-harvestarr/issues</Support>
+    <Project>https://github.com/ryakel/stream-harvestarr</Project>
+    <ReadMe>https://github.com/ryakel/stream-harvestarr/wiki</ReadMe>
+    <Overview>A Sonarr companion script to allow the automatic downloading of web series normally not available for Sonarr to search for.</Overview>
+    <Description>
+A Sonarr companion script to allow the automatic downloading of web series normally not available for Sonarr to search for. Using YT-DLP (a youtube-dl fork with added features) it allows you to download your webseries from the list of supported sites.
+
+Features:
+- Downloading web series using online sources normally unavailable to Sonarr
+- Ability to specify the downloaded video format globally or per series
+- Downloads new episodes automatically once available
+- Imports directly to Sonarr (which can then update Plex)
+- Allows setting time offsets to handle prerelease series
+- Can pass username, password or cookies.txt to handle site logins
+- Smart rate limiting with exponential backoff to prevent YouTube throttling
+- Comprehensive configuration options for bulk downloads
+
+IMPORTANT:
+The image name and repo have changed to ryakel/stream-harvestarr.
+ryakel/sonarr-yt-dlp has been deprecated as of version 1.2.17.
+Please update your image and config.yml if migrating from the old image.
+    </Description>
+    <Category>MediaApp:Video</Category>
+    <WebUI/>
+    <TemplateURL>https://raw.githubusercontent.com/ryakel/stream-harvestarr/main/unraid-templates/stream-harvestarr.xml</TemplateURL>
+    <Icon>https://raw.githubusercontent.com/ryakel/stream-harvestarr/main/img/stream-harvestarr-logo_small.png</Icon>
+    <ExtraParams>--restart=unless-stopped</ExtraParams>
+    <PostArgs/>
+    <CPUset/>
+    <DonateText>If you found this helpful, please consider buying me a coffee.</DonateText>
+    <DonateLink>https://www.buymeacoffee.com/ryakel</DonateLink>
+    <Requires/>
+
+    <!-- Path Mappings -->
+    <Config Name="Appdata" Target="/config" Default="/mnt/user/appdata/stream-harvestarr" Mode="rw" Description="Path to store configuration files including config.yml" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/stream-harvestarr</Config>
+    <Config Name="Sonarr Root" Target="/sonarr_root" Default="/mnt/user/data/media/tv/" Mode="rw" Description="Path to your TV media folder (must match Sonarr's root folder)" Type="Path" Display="always" Required="true" Mask="false">/mnt/user/data/media/tv/</Config>
+    <Config Name="Logs" Target="/logs" Default="/mnt/user/appdata/stream-harvestarr/logs" Mode="rw" Description="Path to store log files" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/stream-harvestarr/logs</Config>
+
+    <!-- User/Group -->
+    <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file permissions (99 = nobody on Unraid)" Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+    <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Group ID for file permissions (100 = users on Unraid)" Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+    <Config Name="UMASK" Target="UMASK" Default="002" Mode="" Description="File permission mask" Type="Variable" Display="advanced" Required="false" Mask="false">002</Config>
+</Container>

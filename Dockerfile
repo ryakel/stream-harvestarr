@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/var/cache/apk,id=apk-${TARGETARCH},sharing=locked
     ln -vsf /var/cache/apk /etc/apk/cache && \
     apk update && \
     apk upgrade && \
-    apk add ffmpeg curl alpine-sdk nodejs && \
+    apk add ffmpeg curl alpine-sdk nodejs su-exec && \
     case "$TARGETARCH" in \
         amd64|arm64) apk add deno ;; \
     esac && \
@@ -31,11 +31,10 @@ RUN --mount=type=cache,target=/var/cache/apk,id=apk-${TARGETARCH},sharing=locked
 
 # create ytdlp user so root isn't used
 RUN addgroup -g 1000 ytdlpg && \
-	adduser -u 911 -h /config -s /bin/false ytdlp -D && \
-	addgroup ytdlp ytdlpg && \
+    adduser -D -u 911 -h /config -s /bin/false -G ytdlpg ytdlp && \
 # create necessary files / folders
-	mkdir -p /config /app /sonarr_root /logs /run/lock && \
-	touch /var/lock/sonarr_youtube.lock
+    mkdir -p /config /app /sonarr_root /logs /run/lock && \
+    touch /var/lock/sonarr_youtube.lock
 
 # add volumes
 VOLUME /config
@@ -44,9 +43,11 @@ VOLUME /logs
 
 # add local files
 COPY app/ /app
+COPY entrypoint.sh /entrypoint.sh
 
 # update file permissions
 RUN chmod a+x \
+    /entrypoint.sh \
     /app/stream_harvestarr.py \
     /app/utils.py \
     /app/config.yml.template && \
@@ -55,4 +56,4 @@ RUN chmod a+x \
 # ENV setup
 ENV CONFIGPATH /config/config.yml
 
-CMD [ "python", "-u", "/app/stream_harvestarr.py" ]
+ENTRYPOINT ["/entrypoint.sh"]
