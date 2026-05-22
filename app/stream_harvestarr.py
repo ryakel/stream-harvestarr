@@ -131,26 +131,20 @@ class StreamHarvester(object):
             )
             self.sonarr_api_version = api
             self.api_key = cfg['sonarr']['apikey']
-        except Exception:
-            sys.exit("Error with sonarr config.yml values.")
         except Exception as e:
-            sys.exit("Error with sonarr config.yml values: {e}")
+            sys.exit(f"Error with sonarr config.yml values: {e}")
 
         # Series Setup
         try:
             self.ytdl_format = cfg['ytdl']['default_format']
-        except Exception:
-            sys.exit("Error with ytdl config.yml values.")
         except Exception as e:
             sys.exit(f"Error with ytdl config.yml values: {e}")
 
         # YTDL Setup
         try:
             self.series = cfg["series"]
-        except Exception:
-            sys.exit("Error with series config.yml values.")
         except Exception as e:
-            sys.exit("Error with series config.yml values: {e}")
+            sys.exit(f"Error with series config.yml values: {e}")
 
         # Services setup - optional, provides base config for series to inherit from
         try:
@@ -626,7 +620,7 @@ class StreamHarvester(object):
             logger.info("Processing Wanted Downloads")
             for s, ser in enumerate(series):
                 logger.info("  {}:".format(ser['title']))
-                for e, eps in enumerate(episodes):
+                for ep, eps in enumerate(episodes):
                     if ser['id'] == eps['seriesId']:
                         cookies = None
                         username = None
@@ -641,7 +635,7 @@ class StreamHarvester(object):
                         ydleps = self.ytdl_eps_search_opts(upperescape(eps['title']), ser['playlistreverse'], cookies, username, password)
                         found, dlurl = self.ytsearch(ydleps, url)
                         if found:
-                            logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
+                            logger.info("    {}: Found - {}:".format(ep + 1, eps['title']))
                             ytdl_format_options = {
                                 'format': self.ytdl_format,
                                 'quiet': True,
@@ -705,7 +699,7 @@ class StreamHarvester(object):
                                 logger.debug('yt-dlp opts configured for downloading')
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
-                                     ydl.download([dlurl])
+                                    ydl.download([dlurl])
                                 self.rescanseries(ser['id'])
                                 logger.info("      Downloaded - {}".format(eps['title']))
                                 # Reset backoff on successful download
@@ -729,7 +723,7 @@ class StreamHarvester(object):
                                             int(self.rate_limit_sleep * (self.backoff_multiplier ** (self.rate_limit_count - 1))),
                                             self.backoff_max
                                         )
-                                        logger.error("      Failed - entry %d - RATE LIMITED (attempt %d)", e + 1, self.rate_limit_count)
+                                        logger.error("      Failed - entry %d - RATE LIMITED (attempt %d)", ep + 1, self.rate_limit_count)
                                         logger.warning("      Exponential backoff: Sleeping for {} seconds ({}m {}s)...".format(
                                             self.current_backoff,
                                             self.current_backoff // 60,
@@ -737,15 +731,15 @@ class StreamHarvester(object):
                                         ))
                                     else:
                                         self.current_backoff = self.rate_limit_sleep
-                                        logger.error("      Failed - entry %d - RATE LIMITED", e + 1)
+                                        logger.error("      Failed - entry %d - RATE LIMITED", ep + 1)
                                         logger.warning("      YouTube rate limit detected. Sleeping for {} seconds...".format(self.current_backoff))
 
                                     time.sleep(self.current_backoff)
                                     logger.info("      Resuming downloads after rate limit cooldown")
                                 else:
-                                    logger.error("      Failed - entry %d - download error", e + 1)
+                                    logger.error("      Failed - entry %d - download error", ep + 1)
                         else:
-                            logger.info("    {}: Missing - {}:".format(e + 1, eps['title']))
+                            logger.info("    {}: Missing - {}:".format(ep + 1, eps['title']))
         else:
             logger.info("Nothing to process")
 
