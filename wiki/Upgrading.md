@@ -117,8 +117,11 @@ You should see:
 ```
 INFO - Initial run
 INFO - Scan interval set to every X minutes
-INFO - Exponential backoff enabled for rate limiting  # New feature active
+INFO - Exponential backoff enabled for rate limiting  # v1.3+
+INFO - Added yaml-language-server schema modeline to /config/config.yml  # v1.8+, first run only
 ```
+
+> **Note:** The schema modeline log line only appears once — on the first run after upgrading, or whenever a `config.yml` is missing the modeline. Subsequent runs will not log it.
 
 ## Post-Upgrade Configuration
 
@@ -302,6 +305,13 @@ streamharvestarr:
 Both work, but `streamharvestarr:` is recommended for future compatibility.
 
 ## Version-Specific Notes
+
+### v1.8.x
+- Added `services` — define shared credentials, cookies, subtitles, and offsets once and inherit across multiple series
+- Added JSON Schema (`config-schema.json`) for full config validation
+- Added automatic `yaml-language-server` modeline injection into `config.yml` — editors validate the file in real time with no manual setup
+- Schema modeline is injected on first run and is idempotent; existing modelines (including local overrides) are never overwritten
+- Fully backward compatible
 
 ### v1.3.x
 - Added rate limiting features

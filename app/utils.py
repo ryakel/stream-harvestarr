@@ -27,6 +27,61 @@ SENSITIVE_KEY_SUBSTRINGS = (
 _APIKEY_QUERY_RE = re.compile(r'(apikey=)[^&\s]+', re.IGNORECASE)
 _APIKEY_JSON_RE = re.compile(r'(api[_-]?key["\']?\s*:\s*["\']?)[^&\s,}"\']+', re.IGNORECASE)
 
+# yaml-language-server modeline written to the top of config file so
+# editors (VS Code, IntelliJ, etc.) automatically validate it against the
+# published schema without any per-workspace configuration.
+_SCHEMA_MODELINE = (
+    "# yaml-language-server: $schema=https://raw.githubusercontent.com/"
+    "ryakel/stream-harvestarr/main/app/config-schema.json"
+)
+_SCHEMA_GUARD = "## Do not remove the above line"
+_SCHEMA_HEADER = "{}\n{}\n".format(_SCHEMA_MODELINE, _SCHEMA_GUARD)
+
+
+def _has_schema_modeline(content: str) -> bool:
+    """Return True if *content* already contains a yaml-language-server modeline."""
+    return bool(re.search(r'#\s*yaml-language-server\s*:', content))
+
+
+def ensure_schema_modeline(path: str, logger=None) -> bool:
+    """Prepend the yaml-language-server schema modeline to a config file if absent.
+
+    If any ``yaml-language-server`` comment is
+    already present (including a user-supplied local ``$schema`` path) the
+    file is left untouched so local overrides are respected.
+
+    Args:
+        path:   Absolute path to the ``config.yml`` (or template) file.
+        logger: Optional logger instance for info/warning messages.
+
+    Returns:
+        ``True`` if the file was modified, ``False`` if it was already up-to-date
+        or if an I/O error prevented modification.
+    """
+    try:
+        with open(path, 'r', encoding='utf-8') as fh:
+            content = fh.read()
+    except OSError as exc:
+        if logger:
+            logger.warning('Could not read {} to check schema modeline: {}'.format(path, exc))
+        return False
+
+    if _has_schema_modeline(content):
+        return False  # already present — nothing to do
+
+    try:
+        with open(path, 'w', encoding='utf-8') as fh:
+            fh.write(_SCHEMA_HEADER + content)
+        if logger:
+            logger.info('Added yaml-language-server schema modeline to {}'.format(path))
+        return True
+    except OSError as exc:
+        if logger:
+            logger.warning(
+                'Could not write schema modeline to {} (check file permissions): {}'.format(path, exc)
+            )
+        return False
+
 
 def redact_sensitive(data):
     """Recursively redact secrets from data so it is safe to log.
@@ -60,10 +115,10 @@ def _normalize_quotes(string):
     two paths can't drift on which curly variants they recognize.
     """
     return (string
-        .replace('’', "'")  # right single quotation mark
-        .replace('‘', "'")  # left single quotation mark
-        .replace('“', '"')  # left double quotation mark
-        .replace('”', '"')  # right double quotation mark
+        .replace('\u2019', "'")  # right single quotation mark
+        .replace('\u2018', "'")  # left single quotation mark
+        .replace('\u201c', '"')  # left double quotation mark
+        .replace('\u201d', '"')  # right double quotation mark
     )
 
 
@@ -111,30 +166,39 @@ def upperescape(string):
 
 
 def checkconfig():
-    """Checks if config files exist in config path
-    If no config available, will copy template to config folder and exit script
+    """Checks if config files exist in config path.
 
-    returns:
+    If no config.yml is present, copies the template into place and exits so
+    the user can fill it in. If a config.yml *is* present, ensures it carries
+    a ``yaml-language-server`` modeline at the top so editors validate it
+    against the published schema automatically.
 
-        `cfg`: dict containing configuration values
+    Returns:
+        ``cfg``: dict containing configuration values
     """
     logger = logging.getLogger('stream_harvestarr')
     config_template = os.path.abspath(CONFIGFILE + '.template')
     config_template_exists = os.path.exists(os.path.abspath(config_template))
     config_file = os.path.abspath(CONFIGFILE)
     config_file_exists = os.path.exists(os.path.abspath(config_file))
+
     if not config_file_exists:
-        logger.critical('Configuration file not found.')  # print('Configuration file not found.')
+        logger.critical('Configuration file not found.')
         if not config_template_exists:
             os.system('cp /app/config.yml.template ' + config_template)
-        logger.critical("Create a config.yml using config.yml.template as an example.")  # sys.exit("Create a config.yml using config.yml.template as an example.")
+            # Ensure the template itself carries the modeline so users see it
+            # immediately when they open it to create their config.yml.
+            ensure_schema_modeline(config_template, logger)
+        logger.critical("Create a config.yml using config.yml.template as an example.")
         sys.exit()
     else:
-        logger.info('Configuration Found. Loading file.')  # print('Configuration Found. Loading file.')
-        with open(
-            config_file,
-            "r"
-        ) as ymlfile:
+        logger.info('Configuration Found. Loading file.')
+        # Ensure the modeline is present before parsing — a missing modeline is
+        # harmless to YAML loading, so we can safely write it first.  If the
+        # line is already there (or the user has their own local $schema
+        # override) the file is left unchanged.
+        ensure_schema_modeline(config_file, logger)
+        with open(config_file, "r") as ymlfile:
             cfg = yaml.load(
                 ymlfile,
                 Loader=yaml.BaseLoader
@@ -195,7 +259,7 @@ def ytdl_hooks_debug(d):
     logger = logging.getLogger('stream_harvestarr')
     if d['status'] == 'finished':
         file_tuple = os.path.split(os.path.abspath(d['filename']))
-        logger.info("      Done downloading {}".format(file_tuple[1]))  # print("Done downloading {}".format(file_tuple[1]))
+        logger.info("      Done downloading {}".format(file_tuple[1]))
     if d['status'] == 'downloading':
         progress = "      {} - {} - {}".format(d['filename'], d['_percent_str'], d['_eta_str'])
         logger.debug(progress)
@@ -206,6 +270,7 @@ def ytdl_hooks(d):
     if d['status'] == 'finished':
         file_tuple = os.path.split(os.path.abspath(d['filename']))
         logger.info("      Downloaded - {}".format(file_tuple[1]))
+
 
 def setup_logging(lf_enabled=True, lc_enabled=True, debugging=False):
     log_level = logging.INFO

@@ -24,6 +24,10 @@ cp config.yml.template config.yml
 nano config.yml
 ```
 
+### Editor Validation
+
+Stream Harvestarr automatically adds a `yaml-language-server` modeline to your `config.yml` on first run, enabling validation in supported editors.
+
 ### Protecting the config file
 
 `config.yml` holds plaintext secrets — the Sonarr `apikey` and any per-series `password` / `cookies_file` you configure. Restrict its permissions so other users on the host can't read it, and never commit it to a repository:
