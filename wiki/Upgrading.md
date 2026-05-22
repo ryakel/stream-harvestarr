@@ -59,6 +59,18 @@ Comprehensive wiki documentation covering:
 - Troubleshooting guides
 - Advanced features
 
+### Sonarr-Aware Filename Padding (v1.8+)
+
+Downloaded filenames now respect Sonarr's configured season/episode
+padding. Default Sonarr installs use `S{season:00}E{episode:00}`, so new
+downloads will land as `S05E07` instead of `S5E7`. Folder paths follow
+Sonarr's `seasonFolderFormat` in the same way. The padding width is read
+from Sonarr at startup; if Sonarr is unreachable the previous unpadded
+behaviour is preserved.
+
+Existing files are not renamed — this only affects newly downloaded
+episodes.
+
 ## Upgrade Process
 
 ### Docker (Recommended)
@@ -302,6 +314,12 @@ streamharvestarr:
 Both work, but `streamharvestarr:` is recommended for future compatibility.
 
 ## Version-Specific Notes
+
+### v1.8.x
+- Downloaded filenames and folder paths now follow Sonarr's naming config
+  (zero-padding derived from `seasonFolderFormat` / `standardEpisodeFormat`)
+- Existing files are untouched; only new downloads are affected
+- Fully backward compatible — falls back to no padding if Sonarr is unreachable
 
 ### v1.3.x
 - Added rate limiting features

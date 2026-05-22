@@ -159,6 +159,57 @@ class StreamHarvester(object):
         except Exception:
             sys.exit("Error with ytdl config.yml values.")
 
+        # Sonarr's naming config controls zero-padding (e.g. Season {season:00}).
+        # Read it once at startup so downloaded paths match the user's media layout.
+        try:
+            naming = self.get_naming_config()
+            season_folder_format = naming.get('seasonFolderFormat') or 'Season {season}'
+            episode_format = naming.get('standardEpisodeFormat') or ''
+            self.season_padding = self.parse_number_format(season_folder_format, 'season')
+            self.episode_padding = self.parse_number_format(episode_format, 'episode')
+            logger.debug('Sonarr seasonFolderFormat: {} -> season padding width: {}'.format(
+                season_folder_format, self.season_padding
+            ))
+            logger.debug('Sonarr standardEpisodeFormat: {} -> episode padding width: {}'.format(
+                episode_format, self.episode_padding
+            ))
+        except Exception:
+            logger.warning('Could not retrieve Sonarr naming config, defaulting to no padding')
+            self.season_padding = 0
+            self.episode_padding = 0
+
+    def get_naming_config(self):
+        """Return Sonarr naming configuration including season folder format"""
+        logger.debug('Begin call Sonarr for naming config')
+        res = self.request_get("{}/{}/config/naming".format(
+            self.base_url,
+            self.sonarr_api_version
+        ))
+        return res.json()
+
+    def parse_number_format(self, format_string, token):
+        """Derive zero-padding width from a Sonarr format token.
+
+        e.g. parse_number_format('S{season:00}E{episode:00}', 'episode') -> 2
+             parse_number_format('S{season}E{episode}', 'episode') -> 0
+
+        Capped at 10 so a malformed format string can't cause unbounded zfill.
+        """
+        match = re.search(r'\{{{}(?::(0+))?\}}'.format(token), format_string)
+        if match and match.group(1):
+            return min(len(match.group(1)), 10)
+        return 0
+
+    def format_season(self, season_number):
+        if self.season_padding > 0:
+            return str(season_number).zfill(self.season_padding)
+        return str(season_number)
+
+    def format_episode(self, episode_number):
+        if self.episode_padding > 0:
+            return str(episode_number).zfill(self.episode_padding)
+        return str(episode_number)
+
     def get_episodes_by_series_id(self, series_id):
         """Returns all episodes for the given series"""
         logger.debug('Begin call Sonarr for all episodes for series_id: {}'.format(series_id))
@@ -550,15 +601,17 @@ class StreamHarvester(object):
                         found, dlurl = self.ytsearch(ydleps, url)
                         if found:
                             logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
+                            season = self.format_season(eps['seasonNumber'])
+                            episode = self.format_episode(eps['episodeNumber'])
                             ytdl_format_options = {
                                 'format': self.ytdl_format,
                                 'quiet': True,
                                 "merge_output_format": self.ytdl_merge_output_format,
                                 'outtmpl': '/sonarr_root{0}/Season {1}/{2} - S{1}E{3} - {4} WEBDL.%(ext)s'.format(
                                     ser['path'],
-                                    eps['seasonNumber'],
+                                    season,
                                     ser['title'],
-                                    eps['episodeNumber'],
+                                    episode,
                                     eps['title']
                                 ),
                                 'progress_hooks': [ytdl_hooks],
