@@ -161,18 +161,15 @@ class StreamHarvester(object):
 
         # Sonarr's naming config controls zero-padding (e.g. Season {season:00}).
         # Read it once at startup so downloaded paths match the user's media layout.
+        # Format strings themselves are not logged: CodeQL flags any value derived
+        # from a Sonarr API response as a potential credential leak (the request
+        # carries apikey=), and the format string isn't worth a per-line suppression.
         try:
             naming = self.get_naming_config()
             season_folder_format = naming.get('seasonFolderFormat') or 'Season {season}'
             episode_format = naming.get('standardEpisodeFormat') or ''
             self.season_padding = self.parse_number_format(season_folder_format, 'season')
             self.episode_padding = self.parse_number_format(episode_format, 'episode')
-            logger.debug('Sonarr seasonFolderFormat: {} -> season padding width: {}'.format(
-                season_folder_format, self.season_padding
-            ))
-            logger.debug('Sonarr standardEpisodeFormat: {} -> episode padding width: {}'.format(
-                episode_format, self.episode_padding
-            ))
         except Exception:
             logger.warning('Could not retrieve Sonarr naming config, defaulting to no padding')
             self.season_padding = 0
