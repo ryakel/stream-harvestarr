@@ -181,22 +181,36 @@ def offsethandler(airdate, offset):
 
 
 class SeriesCache:
-    """Persistent cache mapping config series titles to Sonarr series IDs.
+    """Cache mapping config series titles to Sonarr series IDs.
 
-    Keeps a ``cache.yml`` file alongside ``config.yml`` so that title-based
-    matching only needs to happen once.  Subsequent runs use the cached ID
-    directly, making matching immune to minor title drift in Sonarr after the
-    first successful resolution.
+    By default (``persist=True``) the cache is backed by ``cache.yml``
+    alongside ``config.yml``: entries survive restarts and title-based
+    matching only happens once per series.
 
-    Instantiate once per ``StreamHarvester`` lifecycle and pass into
-    ``filterseries()``.  Call ``save()`` once after all matches are resolved,
-    not inside the match loop.
+    When ``persist=False`` (set via ``streamharvestarr.caching: false``
+    in ``config.yml``) the cache is memory-only.  Lookups still avoid
+    redundant title matching within a single run, but nothing is read
+    from or written to disk.  The cache resets on every container restart.
+
+    Instantiate once at startup and pass into ``filterseries()``.
+    Call ``save()`` once after each scan cycle — it is a no-op when
+    ``persist=False``.
     """
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, persist=True):
         self._path = path or CACHEFILE
+        self._persist = persist
         self._logger = logging.getLogger('stream_harvestarr')
-        self._data = self._load()
+
+        if self._persist:
+            self._logger.debug('Cache: persistence enabled — backing store: %s', self._path)
+            self._data = self._load()
+        else:
+            self._logger.info(
+                'Cache: persistence disabled (caching: false in config) — '
+                'running in memory-only mode; resolved IDs will not survive a restart'
+            )
+            self._data = {}
 
     def get_id(self, title):
         """Return the cached Sonarr series ID for *title*, or ``None``."""
@@ -237,20 +251,19 @@ class SeriesCache:
             del self._data[title]
 
     def save(self):
-        """Atomically write the current cache to disk.
+        """Flush the cache to disk.
 
-        Uses a temp-file + ``os.replace`` so readers always see a complete
-        file even if the process is killed mid-write.  The temp file is
-        created in the same directory as the cache so the rename is
-        guaranteed to be on the same filesystem (cross-device rename would
-        raise ``OSError``).
+        No-op when ``persist=False`` — the cache is intentionally memory-only
+        and nothing should be written to disk.
 
-        ``tmp_path`` is initialised to ``None`` before any work begins.
-        A ``finally`` block always attempts cleanup if the rename has not
-        yet succeeded, so a failure at any point — including a
-        non-``OSError`` from ``yaml.dump`` — never leaves a stale temp
-        file on disk.
+        When ``persist=True``: atomically writes via a temp-file + ``os.replace``
+        so readers always see a complete file even if the process is killed
+        mid-write.  A ``finally`` block ensures the temp file is always cleaned
+        up on failure, regardless of the exception type raised.
         """
+        if not self._persist:
+            return
+
         cache_dir = os.path.dirname(self._path)
         tmp_path = None
         renamed = False

@@ -42,12 +42,14 @@ If you're running in Docker, the file is on the host alongside the bind-mounted 
 streamharvestarr:
     scan_interval: 1
     debug: False
+    persist: True
 ```
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `scan_interval` | integer | 60 | Minutes between each scan for new episodes |
 | `debug` | boolean | False | Enable verbose logging output |
+| `persist` | boolean | True | Enable writing of cache file |
 
 ### Rate Limiting Settings
 

@@ -92,6 +92,18 @@ class StreamHarvester(object):
                 logger.debug('Max backoff set to {} seconds'.format(self.backoff_max))
             except (AttributeError, ValueError):
                 self.backoff_max = 3600
+            # Series ID cache — instantiated once at startup.
+            # _load() runs exactly once; all subsequent scans use the in-memory
+            # cache. Call save() after each scan to flush new entries to disk.
+            try:
+                self.cache_persist = self.config_section.get('caching', 'true').lower() != 'false'
+                self.series_cache = SeriesCache(persist=self.cache_persist)
+                if not self.cache_persist:
+                    logger.info('Cache persistence disabled — running in memory-only mode')
+            except (AttributeError, ValueError):
+                self.cache_persist = True
+                self.series_cache = SeriesCache(persist=True)
+                logger.warning('Error reading caching config, defaulting to persistence enabled')
             # Exponential backoff state tracking
             self.rate_limit_count = 0
             self.current_backoff = self.rate_limit_sleep
@@ -159,10 +171,6 @@ class StreamHarvester(object):
         except Exception:
             sys.exit("Error with ytdl config.yml values.")
 
-        # Series ID cache — instantiated once at startup.
-        # _load() runs exactly once; all subsequent scans use the in-memory
-        # cache. Call save() after each scan to flush new entries to disk.
-        self.series_cache = SeriesCache()
 
     def get_episodes_by_series_id(self, series_id):
         """Returns all episodes for the given series"""
