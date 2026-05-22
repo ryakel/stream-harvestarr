@@ -21,6 +21,7 @@ Please update your image and update your config.yml. :warning:
 * Allows setting time offsets to handle prerelease series
 * Can pass cookies.txt to handle site logins
 * Smart rate limiting with exponential backoff to prevent YouTube throttling
+* Smart caching to reduce API calls to Sonarr
 * Comprehensive configuration options for bulk downloads
 
 ## Documentation

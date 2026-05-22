@@ -42,12 +42,14 @@ If you're running in Docker, the file is on the host alongside the bind-mounted 
 streamharvestarr:
     scan_interval: 1
     debug: False
+    caching: True
 ```
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `scan_interval` | integer | 60 | Minutes between each scan for new episodes |
-| `debug` | boolean | False | Enable verbose logging output |
+| Setting           | Type    | Default | Description                                |
+| ----------------- | ------- | ------- | ------------------------------------------ |
+| `scan_interval` | integer | 60      | Minutes between each scan for new episodes |
+| `debug`         | boolean | False   | Enable verbose logging output              |
+| `caching`       | boolean | True    | Enable writing of cache file               |
 
 ### Rate Limiting Settings
 
@@ -63,14 +65,14 @@ streamharvestarr:
     backoff_max: 3600
 ```
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `download_delay` | integer | 0 | Seconds to wait between downloads. Recommended: 5-10 for rate limit prevention |
-| `sleep_requests` | integer | 0 | Seconds to wait between API requests to streaming sites. Recommended: 1-3 |
-| `rate_limit_sleep` | integer | 900 | Initial wait time in seconds when rate limited (15 minutes default) |
-| `exponential_backoff` | boolean | True | Enable exponential backoff for repeated rate limiting |
-| `backoff_multiplier` | float | 2.0 | Multiply wait time by this factor on each subsequent rate limit |
-| `backoff_max` | integer | 3600 | Maximum backoff time in seconds (1 hour default) |
+| Setting                 | Type    | Default | Description                                                                    |
+| ----------------------- | ------- | ------- | ------------------------------------------------------------------------------ |
+| `download_delay`      | integer | 0       | Seconds to wait between downloads. Recommended: 5-10 for rate limit prevention |
+| `sleep_requests`      | integer | 0       | Seconds to wait between API requests to streaming sites. Recommended: 1-3      |
+| `rate_limit_sleep`    | integer | 900     | Initial wait time in seconds when rate limited (15 minutes default)            |
+| `exponential_backoff` | boolean | True    | Enable exponential backoff for repeated rate limiting                          |
+| `backoff_multiplier`  | float   | 2.0     | Multiply wait time by this factor on each subsequent rate limit                |
+| `backoff_max`         | integer | 3600    | Maximum backoff time in seconds (1 hour default)                               |
 
 **Recommended settings for bulk downloads:**
 
@@ -100,14 +102,14 @@ sonarr:
     # version: v4         # Optional
 ```
 
-| Setting | Type | Required | Description |
-|---------|------|----------|-------------|
-| `host` | string | Yes | Sonarr server IP address or hostname |
-| `port` | integer | Yes | Sonarr port (default: 8989) |
-| `apikey` | string | Yes | Sonarr API key (found in Settings → General) |
-| `ssl` | boolean | Yes | Use HTTPS instead of HTTP |
-| `basedir` | string | No | Base directory if Sonarr runs behind a proxy (e.g., `/sonarr`) |
-| `version` | string | No | Set to `v4` if running Sonarr v4 beta |
+| Setting     | Type    | Required | Description                                                     |
+| ----------- | ------- | -------- | --------------------------------------------------------------- |
+| `host`    | string  | Yes      | Sonarr server IP address or hostname                            |
+| `port`    | integer | Yes      | Sonarr port (default: 8989)                                     |
+| `apikey`  | string  | Yes      | Sonarr API key (found in Settings → General)                   |
+| `ssl`     | boolean | Yes      | Use HTTPS instead of HTTP                                       |
+| `basedir` | string  | No       | Base directory if Sonarr runs behind a proxy (e.g.,`/sonarr`) |
+| `version` | string  | No       | Set to `v4` if running Sonarr v4 beta                         |
 
 ### Finding Your Sonarr API Key
 
@@ -126,29 +128,33 @@ ytdl:
     merge_output_format: "mkv"
 ```
 
-| Setting | Type | Description |
-|---------|------|-------------|
-| `default_format` | string | Default video quality format selector |
+| Setting                 | Type   | Description                                             |
+| ----------------------- | ------ | ------------------------------------------------------- |
+| `default_format`      | string | Default video quality format selector                   |
 | `merge_output_format` | string | Output container format (avi, flv, mkv, mov, mp4, webm) |
 
 ### Format Selection Examples
 
 **1080p maximum:**
+
 ```yaml
 default_format: bestvideo[width<=1920]+bestaudio/best[width<=1920]
 ```
 
 **720p maximum:**
+
 ```yaml
 default_format: bestvideo[width<=1280]+bestaudio/best[width<=1280]
 ```
 
 **Best available quality:**
+
 ```yaml
 default_format: bestvideo+bestaudio/best
 ```
 
 **MP4 only with fallback:**
+
 ```yaml
 default_format: bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best
 ```
@@ -170,18 +176,18 @@ services:
       days: 3
 ```
 
-| Setting | Type | Required | Description |
-|---------|------|----------|-------------|
-| `title` | string | Yes | Service name, referenced by series via `service:` key |
-| `url` | string | Yes | Base URL of the service |
-| `username` | string | No | Username for authentication |
-| `password` | string | No | Password for authentication |
-| `cookies_file` | string | No | Cookie file for authentication (relative to config dir) |
-| `format` | string | No | Default format override for all series using this service |
-| `playlistreverse` | boolean | No | Default playlist order for series using this service |
-| `offset` | object | No | Default time offset for series using this service |
-| `subtitles` | object | No | Default subtitle config for series using this service |
-| `regex` | object | No | Default regex matching for series using this service |
+| Setting             | Type    | Required | Description                                               |
+| ------------------- | ------- | -------- | --------------------------------------------------------- |
+| `title`           | string  | Yes      | Service name, referenced by series via `service:` key   |
+| `url`             | string  | Yes      | Base URL of the service                                   |
+| `username`        | string  | No       | Username for authentication                               |
+| `password`        | string  | No       | Password for authentication                               |
+| `cookies_file`    | string  | No       | Cookie file for authentication (relative to config dir)   |
+| `format`          | string  | No       | Default format override for all series using this service |
+| `playlistreverse` | boolean | No       | Default playlist order for series using this service      |
+| `offset`          | object  | No       | Default time offset for series using this service         |
+| `subtitles`       | object  | No       | Default subtitle config for series using this service     |
+| `regex`           | object  | No       | Default regex matching for series using this service      |
 
 Series-level settings always override service-level settings. See [Services](Advanced-Features#services) in the Advanced Features guide for full details and examples.
 
@@ -254,29 +260,29 @@ series:
 
 ### Complete Series Options
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `title` | string | Required | Series name (must match Sonarr exactly) |
-| `url` | string | Required | Channel, playlist URL, or path relative to service URL |
-| `service` | string | Optional | Service name to inherit shared configuration from |
-| `format` | string | Optional | Override default format for this series |
-| `cookies_file` | string | Optional | Cookie file for authentication (relative to config dir) |
-| `username` | string | Optional | Username to access the service |
-| `password` | string | Optional | Password to access the service |
-| `playlistreverse` | boolean | True | Process playlist in reverse order |
-| `offset` | object | Optional | Time offset for early access content |
-| `offset.weeks` | integer | Optional | Weeks to wait after air date |
-| `offset.days` | integer | Optional | Days to wait after air date |
-| `offset.hours` | integer | Optional | Hours to wait after air date |
-| `offset.minutes` | integer | Optional | Minutes to wait after air date |
-| `subtitles` | object | Optional | Enable subtitle downloading |
-| `subtitles.languages` | array | ['en'] | Subtitle language codes |
-| `subtitles.autogenerated` | boolean | False | Include auto-generated subtitles |
-| `regex` | object | Optional | Title matching patterns |
-| `regex.sonarr.match` | string | Optional | Regex pattern to match in Sonarr title |
-| `regex.sonarr.replace` | string | Optional | Replacement string for matched pattern |
-| `regex.site.match` | string | Optional | Regex pattern to match in site title |
-| `regex.site.replace` | string | Optional | Replacement string for matched pattern |
+| Setting                     | Type    | Default  | Description                                             |
+| --------------------------- | ------- | -------- | ------------------------------------------------------- |
+| `title`                   | string  | Required | Series name (must match Sonarr exactly)                 |
+| `url`                     | string  | Required | Channel, playlist URL, or path relative to service URL  |
+| `service`                 | string  | Optional | Service name to inherit shared configuration from       |
+| `format`                  | string  | Optional | Override default format for this series                 |
+| `cookies_file`            | string  | Optional | Cookie file for authentication (relative to config dir) |
+| `username`                | string  | Optional | Username to access the service                          |
+| `password`                | string  | Optional | Password to access the service                          |
+| `playlistreverse`         | boolean | True     | Process playlist in reverse order                       |
+| `offset`                  | object  | Optional | Time offset for early access content                    |
+| `offset.weeks`            | integer | Optional | Weeks to wait after air date                            |
+| `offset.days`             | integer | Optional | Days to wait after air date                             |
+| `offset.hours`            | integer | Optional | Hours to wait after air date                            |
+| `offset.minutes`          | integer | Optional | Minutes to wait after air date                          |
+| `subtitles`               | object  | Optional | Enable subtitle downloading                             |
+| `subtitles.languages`     | array   | ['en']   | Subtitle language codes                                 |
+| `subtitles.autogenerated` | boolean | False    | Include auto-generated subtitles                        |
+| `regex`                   | object  | Optional | Title matching patterns                                 |
+| `regex.sonarr.match`      | string  | Optional | Regex pattern to match in Sonarr title                  |
+| `regex.sonarr.replace`    | string  | Optional | Replacement string for matched pattern                  |
+| `regex.site.match`        | string  | Optional | Regex pattern to match in site title                    |
+| `regex.site.replace`      | string  | Optional | Replacement string for matched pattern                  |
 
 ## Example Complete Configuration
 

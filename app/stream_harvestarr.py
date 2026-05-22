@@ -4,7 +4,7 @@ import yt_dlp
 import os
 import sys
 import re
-from utils import upperescape, normalize_title, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
+from utils import upperescape, normalize_title, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging, SeriesCache  # NOQA
 from datetime import datetime
 import schedule
 import time
@@ -92,6 +92,18 @@ class StreamHarvester(object):
                 logger.debug('Max backoff set to {} seconds'.format(self.backoff_max))
             except (AttributeError, ValueError):
                 self.backoff_max = 3600
+            # Series ID cache — instantiated once at startup.
+            # _load() runs exactly once; all subsequent scans use the in-memory
+            # cache. Call save() after each scan to flush new entries to disk.
+            try:
+                self.cache_persist = self.config_section.get('caching', 'true').lower() != 'false'
+                self.series_cache = SeriesCache(persist=self.cache_persist)
+                if not self.cache_persist:
+                    logger.info('Cache persistence disabled — running in memory-only mode')
+            except (AttributeError, ValueError):
+                self.cache_persist = True
+                self.series_cache = SeriesCache(persist=True)
+                logger.warning('Error reading caching config, defaulting to persistence enabled')
             # Exponential backoff state tracking
             self.rate_limit_count = 0
             self.current_backoff = self.rate_limit_sleep
@@ -119,26 +131,20 @@ class StreamHarvester(object):
             )
             self.sonarr_api_version = api
             self.api_key = cfg['sonarr']['apikey']
-        except Exception:
-            sys.exit("Error with sonarr config.yml values.")
         except Exception as e:
-            sys.exit("Error with sonarr config.yml values: {e}")
+            sys.exit(f"Error with sonarr config.yml values: {e}")
 
         # Series Setup
         try:
             self.ytdl_format = cfg['ytdl']['default_format']
-        except Exception:
-            sys.exit("Error with ytdl config.yml values.")
         except Exception as e:
             sys.exit(f"Error with ytdl config.yml values: {e}")
 
         # YTDL Setup
         try:
             self.series = cfg["series"]
-        except Exception:
-            sys.exit("Error with series config.yml values.")
         except Exception as e:
-            sys.exit("Error with series config.yml values: {e}")
+            sys.exit(f"Error with series config.yml values: {e}")
 
         # Services setup - optional, provides base config for series to inherit from
         try:
@@ -159,12 +165,13 @@ class StreamHarvester(object):
         except Exception:
             sys.exit("Error with ytdl config.yml values.")
 
+
     def get_episodes_by_series_id(self, series_id):
         """Returns all episodes for the given series"""
         logger.debug('Begin call Sonarr for all episodes for series_id: {}'.format(series_id))
         args = {'seriesId': series_id}
         res = self.request_get("{}/{}/episode".format(
-            self.base_url, 
+            self.base_url,
             self.sonarr_api_version
             ), args
         )
@@ -173,7 +180,7 @@ class StreamHarvester(object):
     def get_episode_files_by_series_id(self, series_id):
         """Returns all episode files for the given series"""
         res = self.request_get("{}/{}/episodefile?seriesId={}".format(
-            self.base_url, 
+            self.base_url,
             self.sonarr_api_version,
             series_id
         ))
@@ -183,7 +190,7 @@ class StreamHarvester(object):
         """Return all series in your collection"""
         logger.debug('Begin call Sonarr for all available series')
         res = self.request_get("{}/{}/series".format(
-            self.base_url, 
+            self.base_url,
             self.sonarr_api_version
         ))
         return res.json()
@@ -243,7 +250,7 @@ class StreamHarvester(object):
         }
         res = self.request_put(
             "{}/{}/command".format(self.base_url, self.sonarr_api_version),
-            None, 
+            None,
             data
         )
         return res.json()
@@ -322,53 +329,133 @@ class StreamHarvester(object):
         return merged
 
     def filterseries(self):
-        """Return all series in Sonarr that are to be downloaded by yt-dlp"""
+        """Return all series in Sonarr that are to be downloaded by yt-dlp.
+
+        Matching strategy (in priority order):
+        1. Cached sonarr_id — fast path, immune to title drift after first
+           resolution.
+        2. Normalised title equality — slow path, result is cached for next run.
+
+        The cache is evicted of any IDs no longer present in Sonarr before
+        matching begins, so series removed and re-added in Sonarr automatically
+        fall back to title matching and re-populate the cache with the new ID.
+
+        The cache is written once after all series are processed, not inside
+        the match loop, to avoid redundant disk writes.
+        """
         series = self.get_series()
+
+        # Evict cache entries whose Sonarr ID no longer exists.  Do this once
+        # upfront with the full live series list rather than per-entry.
+        live_ids = {ser['id'] for ser in series}
+        self.series_cache.evict_stale(live_ids)
+
         matched = []
-        for ser in series[:]:
-            for wnt in self.series:
-                if normalize_title(wnt['title']) == normalize_title(ser['title']):
-                    # Merge service config before reading any keys (series overrides service)
-                    wnt = self.merge_service_config(wnt)
-                    # Set default values
-                    ser['subtitles'] = False
-                    ser['playlistreverse'] = True
-                    ser['subtitles_languages'] = ['en']
-                    ser['subtitles_autogenerated'] = False
-                    # Update values
-                    if 'regex' in wnt:
-                        regex = wnt['regex']
-                        if 'sonarr' in regex:
-                            ser['sonarr_regex_match'] = regex['sonarr']['match']
-                            ser['sonarr_regex_replace'] = regex['sonarr']['replace']
-                        if 'site' in regex:
-                            ser['site_regex_match'] = regex['site']['match']
-                            ser['site_regex_replace'] = regex['site']['replace']
-                    if 'offset' in wnt:
-                        ser['offset'] = wnt['offset']
-                    if 'cookies_file' in wnt:
-                        ser['cookies_file'] = wnt['cookies_file']
-                    if 'username' in wnt:
-                        ser['username'] = wnt['username']
-                    if 'password' in wnt:
-                        ser['password'] = wnt['password']
-                    if 'format' in wnt:
-                        ser['format'] = wnt['format']
-                    if 'playlistreverse' in wnt:
-                        if wnt['playlistreverse'] == 'False':
-                            ser['playlistreverse'] = False
-                    if 'subtitles' in wnt:
-                        ser['subtitles'] = True
-                        if 'languages' in wnt['subtitles']:
-                            ser['subtitles_languages'] = wnt['subtitles']['languages']
-                        if 'autogenerated' in wnt['subtitles']:
-                            ser['subtitles_autogenerated'] = wnt['subtitles']['autogenerated']
-                    ser['url'] = wnt['url']
-                    matched.append(ser)
-        for check in matched:
-            if not check['monitored']:
-                logger.warning('{0} is not currently monitored'.format(ser['title']))
-        del series[:]
+        cache_updated = False
+
+        for wnt in self.series:
+            # Merge service config before reading any keys (series overrides service).
+            # Must happen before cache lookup so the resolved URL and credentials
+            # are present on the dict we eventually append to matched.
+            wnt = self.merge_service_config(wnt)
+
+            cached_id = self.series_cache.get_id(wnt['title'])
+
+            matched_ser = None
+            match_method = None
+
+            if cached_id is not None:
+                # Fast path: look up by cached ID directly.
+                for ser in series:
+                    if ser['id'] == cached_id:
+                        matched_ser = ser
+                        match_method = 'cached sonarr_id {}'.format(cached_id)
+                        break
+                if matched_ser is None:
+                    # ID was in cache but not found in live series — eviction
+                    # above should have caught this, but guard defensively.
+                    logger.warning(
+                        '"%s": cached sonarr_id %d not found in live series '
+                        '(should have been evicted) — falling back to title match',
+                        wnt['title'], cached_id,
+                    )
+
+            if matched_ser is None:
+                # Slow path: normalised title match.
+                for ser in series:
+                    if normalize_title(wnt['title']) == normalize_title(ser['title']):
+                        matched_ser = ser
+                        match_method = 'title match'
+                        # Cache the resolved ID so future runs use the fast path.
+                        self.series_cache.set(wnt['title'], ser['id'])
+                        cache_updated = True
+                        logger.info(
+                            '"%s": matched via title (sonarr_id %d) — '
+                            'caching for future runs',
+                            wnt['title'], ser['id'],
+                        )
+                        break
+
+            if matched_ser is None:
+                logger.warning(
+                    '"%s": no match found in Sonarr (checked cache and title) — '
+                    'verify the title in config.yml matches Sonarr exactly',
+                    wnt['title'],
+                )
+                continue
+
+            logger.debug('"%s": matched via %s', wnt['title'], match_method)
+
+            # Work on a shallow copy so the original series list entry is
+            # untouched across iterations (relevant if a title appears twice
+            # in config, or if two wnt entries resolve to the same Sonarr series).
+            ser = dict(matched_ser)
+
+            # Set default values
+            ser['subtitles'] = False
+            ser['playlistreverse'] = True
+            ser['subtitles_languages'] = ['en']
+            ser['subtitles_autogenerated'] = False
+
+            # Update values
+            if 'regex' in wnt:
+                regex = wnt['regex']
+                if 'sonarr' in regex:
+                    ser['sonarr_regex_match'] = regex['sonarr']['match']
+                    ser['sonarr_regex_replace'] = regex['sonarr']['replace']
+                if 'site' in regex:
+                    ser['site_regex_match'] = regex['site']['match']
+                    ser['site_regex_replace'] = regex['site']['replace']
+            if 'offset' in wnt:
+                ser['offset'] = wnt['offset']
+            if 'cookies_file' in wnt:
+                ser['cookies_file'] = wnt['cookies_file']
+            if 'username' in wnt:
+                ser['username'] = wnt['username']
+            if 'password' in wnt:
+                ser['password'] = wnt['password']
+            if 'format' in wnt:
+                ser['format'] = wnt['format']
+            if 'playlistreverse' in wnt:
+                if wnt['playlistreverse'] == 'False':
+                    ser['playlistreverse'] = False
+            if 'subtitles' in wnt:
+                ser['subtitles'] = True
+                if 'languages' in wnt['subtitles']:
+                    ser['subtitles_languages'] = wnt['subtitles']['languages']
+                if 'autogenerated' in wnt['subtitles']:
+                    ser['subtitles_autogenerated'] = wnt['subtitles']['autogenerated']
+            ser['url'] = wnt['url']
+
+            if not ser['monitored']:
+                logger.warning('"%s" is not currently monitored', ser['title'])
+
+            matched.append(ser)
+
+        # Write cache once after all series are processed, not per-match.
+        if cache_updated:
+            self.series_cache.save()
+
         return matched
 
     def getseriesepisodes(self, series):
@@ -426,10 +513,9 @@ class StreamHarvester(object):
                 ytdlopts.update({
                     'cookiefile': cookie_path
                 })
-                # if self.debug is True:
                 logger.debug('  Cookies file loaded successfully')
             if cookie_exists is False:
-                logger.warning('  cookie files specified but doesn''t exist.')
+                logger.warning('  cookie files specified but doesn\'t exist.')
             return ytdlopts
         else:
             return ytdlopts
@@ -534,7 +620,7 @@ class StreamHarvester(object):
             logger.info("Processing Wanted Downloads")
             for s, ser in enumerate(series):
                 logger.info("  {}:".format(ser['title']))
-                for e, eps in enumerate(episodes):
+                for ep, eps in enumerate(episodes):
                     if ser['id'] == eps['seriesId']:
                         cookies = None
                         username = None
@@ -549,7 +635,7 @@ class StreamHarvester(object):
                         ydleps = self.ytdl_eps_search_opts(upperescape(eps['title']), ser['playlistreverse'], cookies, username, password)
                         found, dlurl = self.ytsearch(ydleps, url)
                         if found:
-                            logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
+                            logger.info("    {}: Found - {}:".format(ep + 1, eps['title']))
                             ytdl_format_options = {
                                 'format': self.ytdl_format,
                                 'quiet': True,
@@ -613,7 +699,7 @@ class StreamHarvester(object):
                                 logger.debug('yt-dlp opts configured for downloading')
                             try:
                                 with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
-                                     ydl.download([dlurl])
+                                    ydl.download([dlurl])
                                 self.rescanseries(ser['id'])
                                 logger.info("      Downloaded - {}".format(eps['title']))
                                 # Reset backoff on successful download
@@ -637,7 +723,7 @@ class StreamHarvester(object):
                                             int(self.rate_limit_sleep * (self.backoff_multiplier ** (self.rate_limit_count - 1))),
                                             self.backoff_max
                                         )
-                                        logger.error("      Failed - entry %d - RATE LIMITED (attempt %d)", e + 1, self.rate_limit_count)
+                                        logger.error("      Failed - entry %d - RATE LIMITED (attempt %d)", ep + 1, self.rate_limit_count)
                                         logger.warning("      Exponential backoff: Sleeping for {} seconds ({}m {}s)...".format(
                                             self.current_backoff,
                                             self.current_backoff // 60,
@@ -645,15 +731,15 @@ class StreamHarvester(object):
                                         ))
                                     else:
                                         self.current_backoff = self.rate_limit_sleep
-                                        logger.error("      Failed - entry %d - RATE LIMITED", e + 1)
+                                        logger.error("      Failed - entry %d - RATE LIMITED", ep + 1)
                                         logger.warning("      YouTube rate limit detected. Sleeping for {} seconds...".format(self.current_backoff))
 
                                     time.sleep(self.current_backoff)
                                     logger.info("      Resuming downloads after rate limit cooldown")
                                 else:
-                                    logger.error("      Failed - entry %d - download error", e + 1)
+                                    logger.error("      Failed - entry %d - download error", ep + 1)
                         else:
-                            logger.info("    {}: Missing - {}:".format(e + 1, eps['title']))
+                            logger.info("    {}: Missing - {}:".format(ep + 1, eps['title']))
         else:
             logger.info("Nothing to process")
 
