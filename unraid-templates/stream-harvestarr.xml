@@ -5,7 +5,7 @@
     <Registry>https://hub.docker.com/r/ryakel/stream-harvestarr/</Registry>
     <Network>bridge</Network>
     <MyIP/>
-    <Shell>bash</Shell>
+    <Shell>sh</Shell>
     <Privileged>false</Privileged>
     <PrivilegedReq>false</PrivilegedReq>
     <Support>https://github.com/ryakel/stream-harvestarr/issues</Support>
