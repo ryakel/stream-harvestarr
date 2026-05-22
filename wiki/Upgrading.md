@@ -140,6 +140,20 @@ streamharvestarr:
     backoff_max: 3600              # NEW: Cap at 1 hour maximum
 ```
 
+### Permission Remapping (New in v1.8+)
+
+The container now supports `PUID`, `PGID`, and `UMASK` environment variables:
+
+```yaml
+environment:
+  - PUID=99      # Unraid: nobody
+  - PGID=100     # Unraid: users
+  - UMASK=002    # optional, default 002
+```
+
+Defaults are `911`/`1000` — existing users with no env vars set will
+see no behaviour change beyond a one-time ownership update on first start.
+
 **After adding these settings:**
 ```bash
 docker restart stream-harvestarr
