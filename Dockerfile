@@ -29,13 +29,12 @@ RUN --mount=type=cache,target=/var/cache/apk,id=apk-${TARGETARCH},sharing=locked
     pip3 install -r requirements.txt && \
     apk del alpine-sdk
 
-# create ytdlp user so root isn't used
+# create ytdlp user so root isn't used (USER directive coming in a future release)
 RUN addgroup -g 1000 ytdlpg && \
 	adduser -u 911 -h /config -s /bin/false ytdlp -D && \
 	addgroup ytdlp ytdlpg && \
-# create necessary files / folders
-	mkdir -p /config /app /sonarr_root /logs /run/lock && \
-	touch /var/lock/sonarr_youtube.lock
+	mkdir -p /config /app /sonarr_root /logs && \
+	chown -R ytdlp:ytdlpg /config /logs
 
 # add volumes
 VOLUME /config

@@ -59,6 +59,50 @@ Comprehensive wiki documentation covering:
 - Troubleshooting guides
 - Advanced features
 
+### Sonarr-Aware Filename Padding (v1.8+)
+
+Downloaded filenames now respect Sonarr's configured season/episode
+padding. Default Sonarr installs use `S{season:00}E{episode:00}`, so new
+downloads will land as `S05E07` instead of `S5E7`. Folder paths follow
+Sonarr's `seasonFolderFormat` in the same way. The padding width is read
+from Sonarr at startup; if Sonarr is unreachable the previous unpadded
+behaviour is preserved.
+
+Existing files are not renamed — this only affects newly downloaded
+episodes.
+
+### Non-Root Container Preparation (v1.8+)
+
+The container currently runs as root. A future release will switch to
+non-root by default (uid 911 / gid 1000, using the `ytdlp` user that is
+already created in the image but not yet active).
+
+Starting in v1.8, the container logs a warning on every startup if it
+detects it is running as root. No behaviour changes yet — this is advance
+notice so you can prepare at your own pace.
+
+**To prepare now (optional, recommended):**
+
+1. Fix ownership on your bind-mounted directories:
+   ```bash
+   chown -R 911:1000 /path/to/config /path/to/logs
+   ```
+2. Add `user:` to your compose file:
+   ```yaml
+   services:
+     stream-harvestarr:
+       user: "911:1000"
+   ```
+   Or use your own host uid (e.g. `"1000:1000"`) and chown to match.
+
+3. Restart the container. If everything works, you're ready for the
+   future default and the startup warning disappears.
+
+**If you do nothing:** the container keeps running as root, exactly as
+before. The only change is the log warning. When the non-root default
+ships in a future release, users who haven't prepared will need to run
+the chown above before upgrading.
+
 ## Upgrade Process
 
 ### Docker (Recommended)
@@ -302,6 +346,16 @@ streamharvestarr:
 Both work, but `streamharvestarr:` is recommended for future compatibility.
 
 ## Version-Specific Notes
+
+### v1.8.x
+- Downloaded filenames and folder paths now follow Sonarr's naming config
+  (zero-padding derived from `seasonFolderFormat` / `standardEpisodeFormat`)
+- Existing files are untouched; only new downloads are affected
+- Falls back to no padding if Sonarr is unreachable
+- Logs a deprecation warning if running as root — a future release will
+  default to non-root (uid 911). See [Non-Root Container Preparation](#non-root-container-preparation-v18)
+- Fixed stale `datetime.now()` bug inherited from upstream — episodes that
+  aired after container start are now detected without a restart
 
 ### v1.3.x
 - Added rate limiting features
