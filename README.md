@@ -92,6 +92,7 @@ services:
   stream-harvestarr:
     image: ryakel/stream-harvestarr
     container_name: stream-harvestarr
+    # user: "1000:1000"  # match your host uid:gid — see wiki/Upgrading
     volumes:
       - /path/to/data:/config
       - /path/to/sonarrmedia:/sonarr_root

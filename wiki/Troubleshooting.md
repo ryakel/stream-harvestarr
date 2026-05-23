@@ -380,6 +380,32 @@ ls -la /path/to/logs
 docker logs stream-harvestarr --tail 50
 ```
 
+### Permission Denied on /config or /logs
+
+If you set `user:` in your compose file (or plan to when non-root becomes
+the default), the container process needs write access to its bind-mounted
+directories.
+
+**Fix ownership to match the container user:**
+```bash
+chown -R 911:1000 /path/to/config /path/to/logs
+```
+
+Or if you use a custom uid:
+```bash
+# use your own uid:gid
+chown -R 1000:1000 /path/to/config /path/to/logs
+```
+
+Then set `user: "1000:1000"` in your compose to match.
+
+### "Container is running as root" Warning
+
+This is a deprecation notice, not an error. The container still works
+normally as root. A future release will switch to non-root by default.
+See the [Upgrading guide](Upgrading#non-root-container-preparation-v18)
+for how to prepare.
+
 ## Log Analysis
 
 ### Enabling Debug Logging
