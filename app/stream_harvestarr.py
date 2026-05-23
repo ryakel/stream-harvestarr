@@ -20,7 +20,6 @@ args = parser.parse_args()
 logger = setup_logging(True, True, args.debug)
 
 date_format = "%Y-%m-%dT%H:%M:%SZ"
-now = datetime.now()
 
 CONFIGFILE = os.environ['CONFIGPATH']
 CONFIGPATH = CONFIGFILE.replace('config.yml', '')
@@ -420,6 +419,7 @@ class StreamHarvester(object):
         return matched
 
     def getseriesepisodes(self, series):
+        now = datetime.now()
         needed = []
         for ser in series[:]:
             episodes = self.get_episodes_by_series_id(ser['id'])
