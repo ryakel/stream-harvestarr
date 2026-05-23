@@ -20,7 +20,6 @@ args = parser.parse_args()
 logger = setup_logging(True, True, args.debug)
 
 date_format = "%Y-%m-%dT%H:%M:%SZ"
-now = datetime.now()
 
 CONFIGFILE = os.environ['CONFIGPATH']
 CONFIGPATH = CONFIGFILE.replace('config.yml', '')
@@ -420,6 +419,7 @@ class StreamHarvester(object):
         return matched
 
     def getseriesepisodes(self, series):
+        now = datetime.now()
         needed = []
         for ser in series[:]:
             episodes = self.get_episodes_by_series_id(ser['id'])
@@ -726,6 +726,14 @@ def main():
 
 
 if __name__ == "__main__":
+    if os.geteuid() == 0:
+        logger.warning(
+            'Container is running as root (uid 0). A future release will '
+            'switch to non-root by default (uid 911, the ytdlp user already '
+            'created in this image). To prepare: add "user: \'911:1000\'" to '
+            'your docker-compose, or run: chown -R 911:1000 <config-path> '
+            '<logs-path> on the host. See the wiki Upgrading guide for details.'
+        )
     logger.info('Initial run')
     main()
     schedule.every(int(SCANINTERVAL)).minutes.do(main)
