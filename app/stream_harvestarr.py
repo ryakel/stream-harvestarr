@@ -118,8 +118,11 @@ class StreamHarvester(object):
             )
             self.sonarr_api_version = api
             self.api_key = cfg['sonarr']['apikey']
-        except Exception:
-            sys.exit("Error with sonarr config.yml values.")
+            # Handle root_folder: default to /sonarr_root for backward compat,
+            # but allow empty string (no prefix) or custom path. Strip trailing
+            # slash unless the value is explicitly empty (meaning use abs path).
+            raw = cfg['sonarr'].get('root_folder', '/sonarr_root')
+            self.root_folder = '' if raw == '' else raw.rstrip('/')
         except Exception as e:
             sys.exit("Error with sonarr config.yml values: {e}")
 
@@ -604,7 +607,8 @@ class StreamHarvester(object):
                                 'format': self.ytdl_format,
                                 'quiet': True,
                                 "merge_output_format": self.ytdl_merge_output_format,
-                                'outtmpl': '/sonarr_root{0}/Season {1}/{2} - S{1}E{3} - {4} WEBDL.%(ext)s'.format(
+                                'outtmpl': '{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s'.format(
+                                    self.root_folder,
                                     ser['path'],
                                     season,
                                     ser['title'],
