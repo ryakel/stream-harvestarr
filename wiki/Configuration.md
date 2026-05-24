@@ -98,6 +98,7 @@ sonarr:
     ssl: false
     # basedir: '/sonarr'  # Optional
     # version: v4         # Optional
+    # root_folder: '/'  # Optional, path prefix for downloads
 ```
 
 | Setting | Type | Required | Description |
@@ -108,6 +109,7 @@ sonarr:
 | `ssl` | boolean | Yes | Use HTTPS instead of HTTP |
 | `basedir` | string | No | Base directory if Sonarr runs behind a proxy (e.g., `/sonarr`) |
 | `version` | string | No | Set to `v4` if running Sonarr v4 beta |
+| `root_folder` | string | No | Path prefix for downloaded files (default:`/sonarr_root`). See [Advanced Features](Advanced-Features#specifying-root-folder) |
 
 ### Finding Your Sonarr API Key
 
@@ -134,21 +136,25 @@ ytdl:
 ### Format Selection Examples
 
 **1080p maximum:**
+
 ```yaml
 default_format: bestvideo[width<=1920]+bestaudio/best[width<=1920]
 ```
 
 **720p maximum:**
+
 ```yaml
 default_format: bestvideo[width<=1280]+bestaudio/best[width<=1280]
 ```
 
 **Best available quality:**
+
 ```yaml
 default_format: bestvideo+bestaudio/best
 ```
 
 **MP4 only with fallback:**
+
 ```yaml
 default_format: bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best
 ```
