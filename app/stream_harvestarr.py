@@ -123,21 +123,17 @@ class StreamHarvester(object):
         except Exception as e:
             sys.exit("Error with sonarr config.yml values: {e}")
 
-        # Series Setup
+        # YTDL Setup
         try:
             self.ytdl_format = cfg['ytdl']['default_format']
-        except Exception:
-            sys.exit("Error with ytdl config.yml values.")
         except Exception as e:
             sys.exit(f"Error with ytdl config.yml values: {e}")
 
-        # YTDL Setup
+        # Series Setup
         try:
             self.series = cfg["series"]
-        except Exception:
-            sys.exit("Error with series config.yml values.")
         except Exception as e:
-            sys.exit("Error with series config.yml values: {e}")
+            sys.exit(f"Error with series config.yml values: {e}")
 
         # Services setup - optional, provides base config for series to inherit from
         try:
