@@ -8,6 +8,7 @@ This guide covers advanced configuration options and use cases for Stream Harves
 - [Custom Video Formats](#custom-video-formats)
 - [Subtitle Configuration](#subtitle-configuration)
 - [Time Offsets](#time-offsets)
+- [Specifying Root Folder](#specifying-root-folder)
 - [Regex Title Matching](#regex-title-matching)
 - [Playlist Handling](#playlist-handling)
 - [Services](#services)
@@ -39,6 +40,7 @@ Supported browsers: chrome, firefox, safari, edge, opera, brave
 ### Using Cookies
 
 1. Place cookie file in config directory:
+
 ```bash
 /path/to/config/
 ├── config.yml
@@ -46,6 +48,7 @@ Supported browsers: chrome, firefox, safari, edge, opera, brave
 ```
 
 2. Reference in config:
+
 ```yaml
 series:
   - title: Members Only Series
@@ -76,6 +79,7 @@ chmod 600 /path/to/config/youtube_cookies.txt
 5. Check file permissions
 
 **Example cookie file format:**
+
 ```
 # Netscape HTTP Cookie File
 .youtube.com	TRUE	/	TRUE	1234567890	COOKIE_NAME	cookie_value
@@ -88,6 +92,7 @@ YT-DLP provides powerful format selection capabilities.
 ### Format Selection Syntax
 
 Basic format string structure:
+
 ```
 [quality_filter][+][audio_filter]/[fallback]
 ```
@@ -95,41 +100,49 @@ Basic format string structure:
 ### Common Format Examples
 
 **Best quality available:**
+
 ```yaml
 format: bestvideo+bestaudio/best
 ```
 
 **1080p maximum:**
+
 ```yaml
 format: bestvideo[height<=1080]+bestaudio/best[height<=1080]
 ```
 
 **720p maximum:**
+
 ```yaml
 format: bestvideo[height<=720]+bestaudio/best[height<=720]
 ```
 
 **4K maximum:**
+
 ```yaml
 format: bestvideo[height<=2160]+bestaudio/best[height<=2160]
 ```
 
 **Specific container formats:**
+
 ```yaml
 format: bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best
 ```
 
 **Prefer webm, fallback to mp4:**
+
 ```yaml
 format: bestvideo[ext=webm]+bestaudio[ext=webm]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best
 ```
 
 **Limit file size (approximate):**
+
 ```yaml
 format: bestvideo[filesize<500M]+bestaudio/best[filesize<500M]
 ```
 
 **Prefer 60fps:**
+
 ```yaml
 format: bestvideo[fps>=60]+bestaudio/bestvideo+bestaudio/best
 ```
@@ -212,6 +225,7 @@ series:
 ### Subtitle Language Codes
 
 Common language codes:
+
 - `en` - English
 - `es` - Spanish
 - `fr` - French
@@ -229,6 +243,7 @@ Full list: [ISO 639-1 codes](https://en.wikipedia.org/wiki/List_of_ISO_639-1_cod
 ### Subtitle Format
 
 Subtitles are:
+
 1. Downloaded as `.vtt` files
 2. Converted to `.srt` format
 3. Embedded in the video file
@@ -271,30 +286,35 @@ All fields are optional. Offsets are additive.
 ### Example Scenarios
 
 **Member videos release 3 days early:**
+
 ```yaml
 offset:
   days: 3
 ```
 
 **Videos release 1 week early for top-tier patrons:**
+
 ```yaml
 offset:
   weeks: 1
 ```
 
 **Content embargoed for 48 hours:**
+
 ```yaml
 offset:
   days: 2
 ```
 
 **Videos available 6 hours early:**
+
 ```yaml
 offset:
   hours: 6
 ```
 
 **Complex: 1 week + 2 days + 6 hours:**
+
 ```yaml
 offset:
   weeks: 1
@@ -305,6 +325,7 @@ offset:
 ### How Offsets Work
 
 Without offset:
+
 ```
 Episode airs: 2025-01-01 00:00:00
 Sonarr sees it: Immediately
@@ -312,6 +333,7 @@ Download attempt: 2025-01-01 00:00:00
 ```
 
 With 3-day offset:
+
 ```
 Episode airs: 2025-01-01 00:00:00
 Sonarr sees it: Immediately
@@ -319,6 +341,35 @@ Download attempt: 2025-01-04 00:00:00 (3 days later)
 ```
 
 This prevents attempting to download content that isn't available yet.
+
+## Specifying Root Folder
+
+The `root_folder` setting controls how downloaded files are saved. Downloads are saved to: `{root_folder}{sonarr_path_from_api}`.
+
+### Common scenarios:
+
+**1. Default behavior (legacy, backward compatible):**
+
+```yaml
+# Omit root_folder or set it explicitly:
+# root_folder: '/sonarr_root'
+```
+
+Downloads go to: `/sonarr_root{Sonarr series path}`
+
+- Example: `/sonarr_root/data/media/tv/Series/Season 1/...`
+- **Use case:** Original container setup with `-v /path/to/media:/sonarr_root`
+
+**2. Absolute Paths (used in TRaSH Guide):**
+
+```yaml
+root_folder: ''  # Empty string means use absolute paths directly
+```
+
+Downloads go directly to: `{Sonarr series path}`
+
+- Example: `/data/media/tv/Series/Season 1/...`
+- **Use case:** Following [TRaSH Guides](https://trash-guides.info/) with same absolute path mounts
 
 ## Regex Title Matching
 
@@ -444,6 +495,7 @@ Configure how playlists are processed.
 ### Playlist Order
 
 **Default behavior (reverse):**
+
 ```yaml
 series:
   - title: Series Name
@@ -452,6 +504,7 @@ series:
 ```
 
 **Newest first:**
+
 ```yaml
 series:
   - title: Series Name
@@ -462,11 +515,13 @@ series:
 ### When to Use Each
 
 **Reverse (True) - Default:**
+
 - Most web series (episodes released chronologically)
 - Archive playlists (oldest episode is #1)
 - Sequential content
 
 **Not Reversed (False):**
+
 - Playlists where newest videos are most important
 - "Latest uploads" playlists
 - Reverse-chronological content
@@ -474,17 +529,21 @@ series:
 ### Playlist vs Channel
 
 **Playlist URL:**
+
 ```yaml
 url: https://www.youtube.com/playlist?list=PLxxxxxxxx
 ```
+
 - Only includes videos in that specific playlist
 - Controlled playlist order
 - May not include all uploads
 
 **Channel URL:**
+
 ```yaml
 url: https://www.youtube.com/channel/UCxxxxxxxx
 ```
+
 - Includes all uploads to channel
 - Chronological order
 - May include videos not in specific playlists
@@ -551,16 +610,16 @@ series:
 
 All of the following can be set at service level and overridden at series level:
 
-| Key | Description |
-|-----|-------------|
-| `username` | Login username |
-| `password` | Login password |
-| `cookies_file` | Cookie file path |
-| `format` | yt-dlp format string |
+| Key                 | Description               |
+| ------------------- | ------------------------- |
+| `username`        | Login username            |
+| `password`        | Login password            |
+| `cookies_file`    | Cookie file path          |
+| `format`          | yt-dlp format string      |
 | `playlistreverse` | Playlist processing order |
-| `offset` | Air date offset |
-| `subtitles` | Subtitle configuration |
-| `regex` | Title matching patterns |
+| `offset`          | Air date offset           |
+| `subtitles`       | Subtitle configuration    |
+| `regex`           | Title matching patterns   |
 
 ## Multiple Series Management
 
@@ -569,6 +628,7 @@ Best practices for managing many series.
 ### Organization Strategies
 
 **Group by source:**
+
 ```yaml
 series:
   # YouTube Series
@@ -584,6 +644,7 @@ series:
 ```
 
 **Group by configuration type:**
+
 ```yaml
 series:
   # Standard series (no special config)
@@ -606,6 +667,7 @@ series:
 For shared credentials, subtitles, or other settings across multiple series from the same platform, use the [Services](#services) feature to avoid repetition.
 
 **Format can still be defined per-series:**
+
 ```yaml
 series:
   - title: 4K Content
@@ -622,12 +684,14 @@ series:
 With many series:
 
 1. **Increase scan interval:**
+
 ```yaml
 streamharvestarr:
     scan_interval: 5  # Check every 5 minutes instead of 1
 ```
 
 2. **Enable rate limiting:**
+
 ```yaml
 streamharvestarr:
     download_delay: 10
@@ -646,6 +710,7 @@ streamharvestarr:
 4. **Update TVDB** - Ensure episode titles match
 
 **Example maintenance script:**
+
 ```bash
 #!/bin/bash
 # Check which series have recent errors

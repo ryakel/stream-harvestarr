@@ -15,6 +15,9 @@ sonarr:
     ssl: false
     # basedir: '/sonarr'  # if you have sonarr running with a basedir set (e.g. behind a proxy)
     # version: v4 # if running v4 beta, allows the v3 api endpoints
+    # root_folder: '/sonarr_root'  # path prefix for downloads (default: /sonarr_root)
+                                   # set to '' (empty) for TRaSH Guides setup with same-path mounts
+                                   # see wiki Configuration.md for details
 
 ytdl:
   # For information on format refer to https://github.com/ytdl-org/youtube-dl#format-selection
