@@ -5,6 +5,7 @@ import os
 import sys
 import re
 from utils import upperescape, normalize_title, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
+from pathutils import normalize_root_folder, DEFAULT_ROOT_FOLDER
 from datetime import datetime
 import schedule
 import time
@@ -119,10 +120,10 @@ class StreamHarvester(object):
             self.sonarr_api_version = api
             self.api_key = cfg['sonarr']['apikey']
             # Handle root_folder: default to /sonarr_root for backward compat,
-            # but allow empty string (no prefix) or custom path. Strip trailing
-            # slash unless the value is explicitly empty (meaning use abs path).
-            raw = cfg['sonarr'].get('root_folder', '/sonarr_root')
-            self.root_folder = '' if raw == '' else raw.rstrip('/')
+            # but allow empty string (no prefix) or custom path. Normalization
+            # lives in pathutils.normalize_root_folder so it can be unit-tested.
+            raw = cfg['sonarr'].get('root_folder', DEFAULT_ROOT_FOLDER)
+            self.root_folder = normalize_root_folder(raw)
         except Exception as e:
             sys.exit(f"Error with sonarr config.yml values: {e}")
 
