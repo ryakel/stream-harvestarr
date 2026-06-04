@@ -5,6 +5,7 @@ import os
 import sys
 import re
 from utils import upperescape, normalize_title, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
+from pathutils import normalize_root_folder, DEFAULT_ROOT_FOLDER
 from datetime import datetime
 import schedule
 import time
@@ -118,26 +119,25 @@ class StreamHarvester(object):
             )
             self.sonarr_api_version = api
             self.api_key = cfg['sonarr']['apikey']
-        except Exception:
-            sys.exit("Error with sonarr config.yml values.")
+            # Handle root_folder: default to /sonarr_root for backward compat,
+            # but allow empty string (no prefix) or custom path. Normalization
+            # lives in pathutils.normalize_root_folder so it can be unit-tested.
+            raw = cfg['sonarr'].get('root_folder', DEFAULT_ROOT_FOLDER)
+            self.root_folder = normalize_root_folder(raw)
         except Exception as e:
-            sys.exit("Error with sonarr config.yml values: {e}")
-
-        # Series Setup
-        try:
-            self.ytdl_format = cfg['ytdl']['default_format']
-        except Exception:
-            sys.exit("Error with ytdl config.yml values.")
-        except Exception as e:
-            sys.exit(f"Error with ytdl config.yml values: {e}")
+            sys.exit(f"Error with sonarr config.yml values: {e}")
 
         # YTDL Setup
         try:
-            self.series = cfg["series"]
-        except Exception:
-            sys.exit("Error with series config.yml values.")
+            self.ytdl_format = cfg['ytdl']['default_format']
         except Exception as e:
-            sys.exit("Error with series config.yml values: {e}")
+            sys.exit(f"Error with ytdl config.yml values: {e}")
+
+        # Series Setup
+        try:
+            self.series = cfg["series"]
+        except Exception as e:
+            sys.exit(f"Error with series config.yml values: {e}")
 
         # Services setup - optional, provides base config for series to inherit from
         try:
@@ -604,7 +604,8 @@ class StreamHarvester(object):
                                 'format': self.ytdl_format,
                                 'quiet': True,
                                 "merge_output_format": self.ytdl_merge_output_format,
-                                'outtmpl': '/sonarr_root{0}/Season {1}/{2} - S{1}E{3} - {4} WEBDL.%(ext)s'.format(
+                                'outtmpl': '{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s'.format(
+                                    self.root_folder,
                                     ser['path'],
                                     season,
                                     ser['title'],
