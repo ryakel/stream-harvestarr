@@ -124,7 +124,7 @@ class StreamHarvester(object):
             raw = cfg['sonarr'].get('root_folder', '/sonarr_root')
             self.root_folder = '' if raw == '' else raw.rstrip('/')
         except Exception as e:
-            sys.exit("Error with sonarr config.yml values: {e}")
+            sys.exit(f"Error with sonarr config.yml values: {e}")
 
         # YTDL Setup
         try:
