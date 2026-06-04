@@ -98,7 +98,7 @@ sonarr:
     ssl: false
     # basedir: '/sonarr'  # Optional
     # version: v4         # Optional
-    # root_folder: '/'  # Optional, path prefix for downloads
+    # root_folder: '/sonarr_root'  # Optional, path prefix for downloads (default: /sonarr_root)
 ```
 
 | Setting | Type | Required | Description |

@@ -351,7 +351,7 @@ The `root_folder` setting controls how downloaded files are saved. Downloads are
 **1. Default behavior (legacy, backward compatible):**
 
 ```yaml
-# Omit sonarr_root or set it explicitly:
+# Omit root_folder or set it explicitly:
 # root_folder: '/sonarr_root'
 ```
 
