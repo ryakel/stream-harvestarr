@@ -551,10 +551,8 @@ class StreamHarvester(object):
             logger.error(e)
             return False, ''
         else:
-            # ignoreerrors makes yt-dlp log and swallow extraction failures
-            # and return None rather than raise. A playlist entry with a null
-            # title trips yt-dlp's own matchtitle regex, so any playlist
-            # holding an unavailable video reaches this.
+            # ignoreerrors makes yt-dlp swallow errors and return None: a null
+            # entry title trips its own matchtitle regex. See issue #149.
             if result is None:
                 logger.error('No metadata returned for {}'.format(playlist))
                 return False, ''
