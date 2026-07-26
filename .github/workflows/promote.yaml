@@ -1,0 +1,118 @@
+name: Promote development to main
+
+# Fast-forwards `main` to `development` instead of merging.
+#
+# Why not the PR merge button: all three GitHub merge strategies (merge
+# commit / squash / rebase) create a NEW commit on main that never existed
+# on development. main then sits permanently one commit ahead, which is
+# what forced a back-merge after every release. It also means `latest` is
+# built from a SHA that was never built as `:dev` -- so the image shipped
+# to users is not literally the artifact that was tested.
+#
+# A fast-forward moves the main ref to the exact commit whose `:dev` image
+# was validated. Same SHA, same build inputs, provably the tested artifact,
+# and the branches can never diverge.
+#
+# Prerequisites:
+#   1. Nothing may commit directly to main. Dependabot and Renovate are both
+#      pinned to `development` for this reason. A single direct-to-main
+#      commit permanently breaks fast-forwardability and needs a one-off
+#      back-merge to recover.
+#   2. Branch protection on main must let this workflow push. Settings ->
+#      Branches -> main -> "Allow specified actors to bypass required pull
+#      requests", and add the github-actions bot.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "promote" to confirm publishing latest to users'
+        required: true
+        type: string
+
+permissions:
+  contents: write   # fast-forward push to main
+  actions: write    # dispatch the release workflow (see below)
+
+jobs:
+  promote:
+    name: Fast-forward main to development
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check confirmation
+        if: inputs.confirm != 'promote'
+        run: |
+          echo "::error::Confirmation failed. Type 'promote' to publish." >&2
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Verify main can fast-forward to development
+        id: check
+        run: |
+          set -euo pipefail
+          git fetch origin main development
+
+          MAIN_SHA=$(git rev-parse origin/main)
+          DEV_SHA=$(git rev-parse origin/development)
+          echo "main:        ${MAIN_SHA}"
+          echo "development: ${DEV_SHA}"
+
+          if [ "${MAIN_SHA}" = "${DEV_SHA}" ]; then
+            echo "::error::main is already at development. Nothing to promote." >&2
+            exit 1
+          fi
+
+          # The fast-forward is only valid if main is an ancestor of
+          # development. If it is not, something landed directly on main and
+          # promoting would silently discard it.
+          if ! git merge-base --is-ancestor "${MAIN_SHA}" "${DEV_SHA}"; then
+            echo "::error::main is NOT an ancestor of development -- the branches have diverged." >&2
+            echo "::error::Something was committed directly to main. Fast-forward would lose it." >&2
+            echo "Commits on main that development lacks:" >&2
+            git log --oneline "${DEV_SHA}..${MAIN_SHA}" >&2
+            echo "Recover with a one-off main -> development sync PR, then retry." >&2
+            exit 1
+          fi
+
+          echo "Promoting these commits to main:"
+          git log --oneline "${MAIN_SHA}..${DEV_SHA}"
+          echo "dev_sha=${DEV_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Fast-forward main
+        run: |
+          set -euo pipefail
+          # Refuse to clobber if main moved since the ancestry check above.
+          git push origin \
+            --force-with-lease="main:$(git rev-parse origin/main)" \
+            "${{ steps.check.outputs.dev_sha }}:refs/heads/main"
+
+      - name: Trigger release build
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # A push made with GITHUB_TOKEN does NOT trigger other workflows,
+          # so the push above will not start "Docker Builder" on its own and
+          # the release would silently never publish. workflow_dispatch and
+          # repository_dispatch are the documented exceptions to that rule,
+          # so dispatch it explicitly. Running main.yaml with ref=main
+          # reproduces exactly what a push to main would have done:
+          # docker_tag=latest, version bump, and GitHub release.
+          gh workflow run main.yaml --ref main
+          echo "Dispatched Docker Builder on main -- latest + version bump + release."
+
+      - name: Summary
+        run: |
+          {
+            echo "### Promoted to main"
+            echo ""
+            echo "\`main\` fast-forwarded to \`${{ steps.check.outputs.dev_sha }}\`."
+            echo ""
+            echo "This is the same commit that was built and tested as \`:dev\`."
+            echo "Docker Builder was dispatched to publish \`latest\`, bump the"
+            echo "semver tag, and cut the GitHub release."
+          } >> "$GITHUB_STEP_SUMMARY"
