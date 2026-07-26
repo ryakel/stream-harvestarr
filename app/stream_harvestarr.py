@@ -549,7 +549,15 @@ class StreamHarvester(object):
                 )
         except Exception as e:
             logger.error(e)
+            return False, ''
         else:
+            # ignoreerrors makes yt-dlp log and swallow extraction failures
+            # and return None rather than raise. A playlist entry with a null
+            # title trips yt-dlp's own matchtitle regex, so any playlist
+            # holding an unavailable video reaches this.
+            if result is None:
+                logger.error('No metadata returned for {}'.format(playlist))
+                return False, ''
             video_url = None
             # Prefer webpage_url over url: yt-dlp's YouTube extractor only sets
             # url when format selection picks a single non-merge format. HLS
