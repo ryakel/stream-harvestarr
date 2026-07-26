@@ -1,6 +1,7 @@
 import requests
 import urllib.parse
 import yt_dlp
+from yt_dlp.utils import match_filter_func
 import os
 import sys
 import re
@@ -525,7 +526,10 @@ class StreamHarvester(object):
             'playlistreverse': playlistreverse,
             'matchtitle': regextitle,
             'quiet': True,
-            'match-filter': '!is_short & !url =~ /shorts/',  # Exclude YouTube Shorts
+            # Exclude YouTube Shorts. match_filter takes a callable, negation
+            # goes between the key and the operator, and the '?' keeps entries
+            # whose url is absent (merged formats have no top-level url).
+            'match_filter': match_filter_func('url !*=? /shorts/'),
             'js_runtimes': JS_RUNTIMES,
         }
         if self.debug is True:
