@@ -286,7 +286,7 @@ class StreamHarvester(object):
         logger.debug('Begin call Sonarr to rescan for series_id: {}'.format(series_id))
         data = {
             "name": "RescanSeries",
-            "seriesId": str(series_id)
+            "seriesId": int(series_id)
         }
         res = self.request_put(
             "{}/{}/command".format(self.base_url, self.sonarr_api_version),
@@ -549,7 +549,13 @@ class StreamHarvester(object):
                 )
         except Exception as e:
             logger.error(e)
+            return False, ''
         else:
+            # ignoreerrors makes yt-dlp swallow errors and return None: a null
+            # entry title trips its own matchtitle regex.
+            if result is None:
+                logger.error('No metadata returned for {}'.format(playlist))
+                return False, ''
             video_url = None
             # Prefer webpage_url over url: yt-dlp's YouTube extractor only sets
             # url when format selection picks a single non-merge format. HLS

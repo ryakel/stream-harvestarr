@@ -8,6 +8,13 @@ on:
       - development
     tags:
       - "*"
+    # Doc-only pushes don't change the shipped image, so skip the
+    # build/publish (and, on main, the version bump + release). A push that
+    # also touches code, the Dockerfile, or workflows still builds normally.
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - 'wiki/**'
 
 permissions:
   contents: write        # tag + release creation
