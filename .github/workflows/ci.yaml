@@ -127,3 +127,72 @@ jobs:
           done
           echo "YouTube extraction smoke test failed after 3 attempts." >&2
           exit 1
+
+  unit-tests:
+    # Tests import app/ directly, so no container is needed. Deliberately no
+    # `needs: build-multiarch` -- this is independent signal that reports in
+    # seconds rather than waiting on the QEMU multi-arch build.
+    #
+    # Adapted from @icco's #154. Until this existed nothing in CI ever ran
+    # test/, so the suites that shipped with #150 and #151 were documentation
+    # rather than a gate.
+    name: Unit Tests (pytest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          # Mirror the Dockerfile base (python:3.14-alpine).
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install dependencies
+        # pytest stays out of requirements.txt -- that file feeds the runtime
+        # image and the dependency-floor automation in CLAUDE.md.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pytest
+
+      - name: Run unit tests
+        run: python -m pytest test/ -q
+
+  dependency-audit:
+    # Scans the resolved dependency tree against the CVE database. This is
+    # the security gate for `development`: Dependabot security PRs cannot be
+    # retargeted off the default branch, so this is where a vulnerable
+    # dependency actually gets caught before it reaches the :dev image.
+    #
+    # Non-blocking on purpose. requirements.txt uses `>=` floors and the
+    # image resolves to latest at build time, so the weekly RC rebuild
+    # already pulls fixes in without a PR. An upstream CVE with no published
+    # fix should surface here, not wedge every unrelated PR. Same posture as
+    # the YouTube smoke test above.
+    name: Dependency Audit (pip-audit)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install pip-audit
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pip-audit
+
+      - name: Audit dependencies
+        run: python -m pip_audit -r requirements.txt --progress-spinner off

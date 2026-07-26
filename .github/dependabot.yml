@@ -15,4 +15,13 @@ updates:
     # `latest`, skipping the :dev image entirely -- that is how the yt-dlp
     # floor drifted out of sync in #148. It also breaks fast-forward
     # promotion, which requires main to stay an ancestor of development.
+    #
+    # Caveat (credit @icco, #154): this scopes *version* updates only.
+    # Dependabot *security* updates ignore target-branch and always open
+    # against the default branch, so one can still land on main and break
+    # fast-forwardability. The promote workflow fails safe when that
+    # happens. Do not "fix" this by making development the default branch:
+    # `schedule:` triggers only fire against the default branch, so the
+    # weekly RC build in cron-build-rc.yaml would start building unproven
+    # development code and ship it to :rc -> :latest.
     target-branch: "development"
