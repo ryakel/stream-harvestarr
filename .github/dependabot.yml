@@ -9,3 +9,10 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    # Dependency updates are a change like any other and must clear the
+    # `development` staging gate before reaching users. Without this,
+    # Dependabot targets the default branch (main) and ships straight to
+    # `latest`, skipping the :dev image entirely -- that is how the yt-dlp
+    # floor drifted out of sync in #148. It also breaks fast-forward
+    # promotion, which requires main to stay an ancestor of development.
+    target-branch: "development"
