@@ -9,3 +9,11 @@ updates:
     directory: "/" # Location of package manifests
     schedule:
       interval: "weekly"
+    # Dependency PRs follow the same feature -> development -> main flow as
+    # human changes. Left unset, Dependabot opens against the default branch
+    # (main), so a merged floor bump ships in a release without ever reaching
+    # development -- that is the drift #148 produced.
+    #
+    # Caveat: target-branch scopes this config to *version* updates. Security
+    # updates always target the default branch and are unaffected.
+    target-branch: "development"
