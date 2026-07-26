@@ -552,7 +552,7 @@ class StreamHarvester(object):
             return False, ''
         else:
             # ignoreerrors makes yt-dlp swallow errors and return None: a null
-            # entry title trips its own matchtitle regex. See issue #149.
+            # entry title trips its own matchtitle regex.
             if result is None:
                 logger.error('No metadata returned for {}'.format(playlist))
                 return False, ''

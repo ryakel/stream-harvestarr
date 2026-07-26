@@ -1,5 +1,5 @@
 """
-Unit tests for ``ytsearch()`` when yt-dlp hands back no metadata (issue #149).
+Unit tests for ``ytsearch()`` when yt-dlp hands back no metadata.
 
 ``ignoreerrors`` makes yt-dlp swallow errors and return None from
 ``extract_info``; ``ytsearch()`` must report "not found" rather than raise, or
@@ -61,7 +61,7 @@ class TestYtsearchMissingMetadata(unittest.TestCase):
         return stream_harvestarr.StreamHarvester.ytsearch(None, {}, PLAYLIST)
 
     def test_none_result_returns_not_found(self):
-        """The issue #149 crash."""
+        """A None result must not raise."""
         self.assertEqual(self.ytsearch(result=None), (False, ''))
 
     def test_extraction_error_returns_not_found(self):
@@ -69,7 +69,7 @@ class TestYtsearchMissingMetadata(unittest.TestCase):
         self.assertEqual(self.ytsearch(exc=RuntimeError('boom')), (False, ''))
 
     def test_entries_prefers_webpage_url(self):
-        """Issue #114 regression guard."""
+        """webpage_url is preferred over url."""
         result = {'entries': [{'webpage_url': 'https://youtu.be/abc', 'url': None}]}
         self.assertEqual(self.ytsearch(result=result), (True, 'https://youtu.be/abc'))
 
