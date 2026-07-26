@@ -286,7 +286,7 @@ class StreamHarvester(object):
         logger.debug('Begin call Sonarr to rescan for series_id: {}'.format(series_id))
         data = {
             "name": "RescanSeries",
-            "seriesId": str(series_id)
+            "seriesId": int(series_id)
         }
         res = self.request_put(
             "{}/{}/command".format(self.base_url, self.sonarr_api_version),
