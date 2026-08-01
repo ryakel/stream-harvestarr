@@ -227,6 +227,50 @@ non-obvious behaviors bit us in issue #114:
 If you ever feel tempted to "simplify" back to `.get('url')`, don't —
 re-read #114 first.
 
+### `matchtitle` is not a filter you can rely on
+
+**`matchtitle` does not remove every non-matching entry from
+`result['entries']`.** Two paths in `YoutubeDL` leave one in:
+
+- `_match_entry` returns early — before the title check — for any entry
+  whose `_type` is `url`/`url_transparent` and whose `ie_key` extractor
+  says `is_single_video()` is False. Every playlist in the results is
+  therefore unfiltered. A channel-search url
+  (`https://www.youtube.com/@CHANNEL/search?query=...`) interleaves
+  playlists with videos, and the VICE search had one at index 0.
+- When a *video* fails the title check in `process_video_result`,
+  yt-dlp `return`s the info dict rather than dropping it. It only
+  declines to download.
+
+Both come back looking exactly like a match. Handing one to
+`download()` is worse than finding nothing: the outtmpl is fixed per
+episode and `nooverwrites` is set, so yt-dlp writes the collection's
+first item into the episode's filename and every episode in the series
+becomes the same video. `noplaylist` does not help — it only strips
+`list=` from a `watch?v=...&list=...` url, not a bare
+`playlist?list=...`.
+
+So `ytsearch()` does its own two checks on each entry — `is_single_video()`
+and `title_matches()` — before accepting it. `title_matches()` reads the
+pattern back off the opts dict it passed to yt-dlp, so the two can't drift.
+
+### `upperescape` builds that pattern, and it is deliberately loose
+
+Punctuation is made optional to absorb human inconsistency between the
+Sonarr title and the upload title. Keep the optionality on *punctuation
+only*. The brackets around "(Part 3)" are optional; the words inside are
+not. Making the parenthetical itself optional collapses every part of a
+multi-part episode onto one regex, and they all resolve to the same video.
+Literal numbers are fenced with `(?<![0-9])`/`(?![0-9])` so "Part 1" can't
+claim "Part 10", while "(Part 1/5)" and "1 of 7" still match "(Part 1)".
+
+Two known gaps, asserted in `test/test_upperescape_parts.py` so a fix
+shows up as a test change: the optional-apostrophe class is ASCII-only
+(a curly apostrophe on the *site's* side won't match, since
+`_normalize_quotes` only touches the pattern), and the `\ AND\ ` →
+`(AND|&)` alternation is dead code (spaces are rewritten to `[\ ]*` on
+the preceding line, so the literal it looks for is already gone).
+
 ## Adding new architectures
 
 If a new platform is added to `main.yaml` / `cron.yaml`, also add it to
