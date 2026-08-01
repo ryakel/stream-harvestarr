@@ -33,6 +33,62 @@ SCANINTERVAL = 60
 # packaged for Alpine).  See issue #96.
 JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
 
+# yt-dlp results that are a *collection* rather than one video. Three shapes
+# reach ytsearch(): a resolved playlist ('playlist' / 'multi_video'), an
+# unresolved reference to one (_type 'url' whose url is a playlist or channel
+# page), and the top-level result for the configured url when nothing in it
+# matched. None of them may be handed to download(): with a fixed outtmpl and
+# nooverwrites, yt-dlp writes the collection's *first* item into the episode's
+# filename, so every episode gets the same wrong video.
+#
+# This is not theoretical. A channel-search url
+# (https://www.youtube.com/@CHANNEL/search?query=...) returns playlist entries
+# interleaved with videos, and YoutubeDL._match_entry deliberately skips
+# matchtitle for entries it can't confirm are a single video — so the playlist
+# sitting at index 0 was never filtered and won every episode.
+COLLECTION_TYPES = ('playlist', 'multi_video')
+# Markers that positively identify one video. Checked first so a legitimate
+# watch?v=ID&list=ID url isn't discarded along with the collections.
+VIDEO_URL_RE = re.compile(
+    r'(?:/watch\b|[?&]v=|/shorts/|youtu\.be/|/embed/)',
+    re.IGNORECASE
+)
+COLLECTION_URL_RE = re.compile(
+    r'(?:/playlist\b|[?&]list=|/@[^/]+/|/channel/|/user/|/c/|/results\b|/search\b)',
+    re.IGNORECASE
+)
+
+
+def is_single_video(entry):
+    """True when a yt-dlp result entry is one downloadable video."""
+    if entry.get('_type') in COLLECTION_TYPES:
+        return False
+    if entry.get('entries') is not None:
+        return False
+    url = entry.get('webpage_url') or entry.get('url') or ''
+    if VIDEO_URL_RE.search(url):
+        return True
+    return not COLLECTION_URL_RE.search(url)
+
+
+def title_matches(entry, matchtitle):
+    """Re-apply the matchtitle pattern to an entry ourselves.
+
+    yt-dlp is not a reliable filter here. When an entry fails matchtitle in
+    ``process_video_result`` it is returned anyway (just not downloaded), and
+    entries it can't confirm are a single video skip the check entirely. Both
+    land in ``result['entries']`` looking exactly like a match.
+
+    An entry with no title cannot be verified, so it is rejected: a missing
+    episode is recoverable, a wrong one silently isn't.
+    """
+    if not matchtitle:
+        return True
+    title = entry.get('title')
+    if not title:
+        return False
+    return re.search(matchtitle, title, re.IGNORECASE) is not None
+
 
 class StreamHarvester(object):
 
@@ -560,32 +616,39 @@ class StreamHarvester(object):
             if result is None:
                 logger.error('No metadata returned for {}'.format(playlist))
                 return False, ''
-            video_url = None
-            # Prefer webpage_url over url: yt-dlp's YouTube extractor only sets
-            # url when format selection picks a single non-merge format. HLS
-            # videos (most modern YouTube uploads) trigger ffmpeg audio+video
-            # merge — the "merged format" dict (YoutubeDL._merge) has
-            # requested_formats but no top-level url, so info_dict.update gives
-            # us an entry with .get('url') == None even though extraction
-            # succeeded. webpage_url is always set by the YouTube extractor
-            # directly; the .get('url') fallback covers other extractors that
-            # only populate url. See issue #114.
-            if 'entries' in result and len(result['entries']) > 0:
-                for entry in result['entries']:
-                    if entry is None:
-                        continue
-                    video_url = entry.get('webpage_url') or entry.get('url')
-                    if video_url:
-                        break
-            else:
-                video_url = result.get('webpage_url') or result.get('url')
-            if playlist == video_url:
-                return False, ''
-            if video_url is None:
-                logger.error('No video_url')
-                return False, ''
-            else:
+            # The pattern yt-dlp was given, re-read off the same opts dict so
+            # our check can never drift from the one it applied.
+            matchtitle = ydl_opts.get('matchtitle')
+            entries = result.get('entries')
+            candidates = list(entries) if entries else [result]
+            for entry in candidates:
+                if entry is None:
+                    continue
+                if not is_single_video(entry):
+                    logger.debug('  Skipping collection result: {}'.format(
+                        entry.get('title') or entry.get('url')
+                    ))
+                    continue
+                if not title_matches(entry, matchtitle):
+                    logger.debug('  Skipping title mismatch: {}'.format(entry.get('title')))
+                    continue
+                # Prefer webpage_url over url: yt-dlp's YouTube extractor only
+                # sets url when format selection picks a single non-merge
+                # format. HLS videos (most modern YouTube uploads) trigger
+                # ffmpeg audio+video merge — the "merged format" dict
+                # (YoutubeDL._merge) has requested_formats but no top-level
+                # url, so info_dict.update gives us an entry with
+                # .get('url') == None even though extraction succeeded.
+                # webpage_url is always set by the YouTube extractor directly;
+                # the .get('url') fallback covers other extractors that only
+                # populate url. See issue #114.
+                video_url = entry.get('webpage_url') or entry.get('url')
+                if not video_url or video_url == playlist:
+                    continue
+                logger.debug('  Matched "{}"'.format(entry.get('title')))
                 return True, video_url
+            logger.debug('  No single video matched in {} result(s)'.format(len(candidates)))
+            return False, ''
 
     def download(self, series, episodes):
         if len(series) != 0:
