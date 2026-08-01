@@ -94,9 +94,13 @@ def upperescape(string):
     string = re.escape(string)
     # Handle none to multiple spaces
     string = string.replace("\\ ", "[\\ ]*")
-    # Make parenthesis optional
-    string = string.replace("\\(", "([\\(]?")
-    string = string.replace("\\)", "[\\)]?)?")
+    # Make the parenthesis characters optional — but not what is inside them.
+    # This used to wrap the parenthetical in a group closed with '?', which
+    # made the whole thing optional: "Ricky Oyola (Part 1)" reduced to
+    # "RICKY OYOLA" and matched every part of the series, so each part
+    # downloaded whichever one the site listed first.
+    string = string.replace("\\(", "[\\(]?")
+    string = string.replace("\\)", "[\\)]?")
     # Make it look for and as whole or ampersands
     string = string.replace('\\ AND\\ ','\\ (AND|&)\\ ')
     # Make punctuation optional for human error
@@ -107,6 +111,11 @@ def upperescape(string):
     string = string.replace("\\?","([\\?]?)") # optional question mark
     string = string.replace(":","([:]?)") # optional colon
     string = re.sub("S\\\\", "([']?)"+"S\\\\", string) # optional belonging apostrophe (has to be last due to question mark)
+    # Fence every literal number so it can't match a longer one. Part numbers
+    # are the reason: without this, "Part 1" matches "Part 10" and a series
+    # numbered past nine assigns part 10's video to part 1. Lookarounds only,
+    # so "Part 1" still matches "Part 1/5" and "Part 1 of 5".
+    string = re.sub(r'(?<![0-9])([0-9]+)', r'(?<![0-9])\1(?![0-9])', string)
     return string
 
 
