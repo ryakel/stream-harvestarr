@@ -255,6 +255,27 @@ and `title_matches()` — before accepting it. `download()` builds the pattern
 once and hands the same value to both `ytdl_eps_search_opts()` and
 `ytsearch()`, so the check yt-dlp applies and the one we re-apply can't drift.
 
+### The search runs flat, and must stay that way
+
+`ytdl_eps_search_opts()` sets `extract_flat: 'in_playlist'`. Without it, a
+channel-search url is brutally expensive in a way that doesn't show up in the
+code: the result carries the channel's **playlists** alongside its videos, and
+yt-dlp recurses into every one of them. On the VICE search that's 13 playlists,
+the largest 1773 items, walked again for *every episode*. With ~100 monitored
+episodes and `scan_interval` in minutes, that is enough to get the session
+rate-limited by YouTube ("This content isn't available, try again later"),
+which then looks like dead videos or bad cookies.
+
+`is_single_video()` refuses to return a playlist regardless, so resolving them
+never bought anything. Flat is also sufficient: an entry needs only a title to
+match on and a url to download, and `download()` re-extracts that url anyway
+(#114). A flat entry has no `webpage_url`, so the `or entry.get('url')`
+fallback is the normal path now, not an edge case — and that url is the
+canonical `watch?v=` page, not a media stream.
+
+`'in_playlist'`, not `True`: the configured url itself must still resolve into
+a list of entries.
+
 ### Never set `matchtitle` — one null title kills the whole extraction
 
 `_match_entry` guards the title check with `if 'title' in info_dict`: the key

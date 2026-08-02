@@ -771,6 +771,22 @@ class StreamHarvester(object):
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
             'quiet': True,
+            # Search for the episode without resolving anything. Two effects,
+            # both large:
+            #
+            #  - Nested collections are not walked. A channel-search result
+            #    carries the channel's playlists alongside its videos, and
+            #    yt-dlp recurses into every one of them: on the VICE search
+            #    that is 13 playlists, the largest 1773 items, walked again
+            #    for *every* episode. is_single_video() already refuses to
+            #    return one, so resolving them only ever cost requests.
+            #  - Candidates are matched on their flat title instead of being
+            #    fully extracted first.
+            #
+            # Nothing downstream needs a resolved entry: a flat one carries
+            # the title to match on and the canonical watch url, and
+            # download() re-extracts that url anyway (see issue #114).
+            'extract_flat': 'in_playlist',
             # The title check lives in the match_filter, never in yt-dlp's
             # 'matchtitle' option. See make_title_filter for why.
             'match_filter': make_title_filter(regextitle, rules, shorts_filter),
@@ -831,7 +847,10 @@ class StreamHarvester(object):
                 # .get('url') == None even though extraction succeeded.
                 # webpage_url is always set by the YouTube extractor directly;
                 # the .get('url') fallback covers other extractors that only
-                # populate url. See issue #114.
+                # populate url. See issue #114. Since the search runs flat
+                # (extract_flat), that fallback is now the normal path: a flat
+                # entry has no webpage_url, and its url is the canonical watch
+                # url rather than a media stream.
                 video_url = entry.get('webpage_url') or entry.get('url')
                 if not video_url or video_url == playlist:
                     continue
