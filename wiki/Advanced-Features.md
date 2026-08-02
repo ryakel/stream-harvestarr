@@ -425,14 +425,28 @@ rewrite. That is deliberate: the show name usually lives in the very suffix a
 
 ### Multi-part uploads
 
-An episode Sonarr models as whole is never satisfied by a single "Part N"
-upload. If the Sonarr episode title does not name a part, candidates that do
-are rejected — otherwise part 1 downloads, `hasFile` flips, and the remaining
-parts are never fetched. Recognised shapes include `(Part 1/5)`, `(Part 1)`,
+By default a `(Part N)` upload can satisfy an episode Sonarr models as whole.
+Part 1 downloads, `hasFile` flips, and the remaining parts are never fetched —
+the episode looks complete and is a fragment.
+
+Set `strict_parts: True` on the series (or on its service) to refuse that
+match: candidates that name a part are then rejected unless the Sonarr episode
+title names one too. Recognised shapes include `(Part 1/5)`, `(Part 1)`,
 `Part 1 of 2`, `1 of 4` and `Pt. 1/17`.
+
+```yaml
+  - title: Epicly Later'd
+    url: https://www.youtube.com/@VICE/search?query=Epicly%20Later%27d
+    strict_parts: True
+```
 
 To collect a split documentary, give Sonarr one episode per part with the part
 in its title (`Ricky Oyola (Part 1/5)`); those match normally.
+
+Enabling it makes affected episodes show as missing until you split them in
+Sonarr. Existing files are untouched, so a complete library does not regress.
+The default may change in a future major release once the option has had
+real-world exposure.
 
 ### Common Regex Examples
 

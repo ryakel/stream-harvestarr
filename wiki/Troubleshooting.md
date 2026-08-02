@@ -123,13 +123,20 @@ This is normal and means:
 - Episode hasn't been released yet
 - Episode title doesn't match TVDB exactly
 - Episode is not in the playlist/channel yet
-- The uploads are split into parts and the Sonarr episode is not
+- The uploads are split into parts, the Sonarr episode is not, and
+  `strict_parts` is enabled
 
-**Multi-part uploads.** A `(Part N)` upload never satisfies an episode
-whose Sonarr title does not name a part — otherwise part 1 downloads,
-`hasFile` flips, and the rest are never fetched. Give Sonarr one
-episode per part, with the part in its title (`Ricky Oyola (Part 1/5)`),
-and each matches normally.
+**Multi-part uploads.** By default a `(Part N)` upload can satisfy an
+episode Sonarr models as whole. Part 1 downloads, `hasFile` flips, and
+the remaining parts are never fetched — the episode looks complete and
+is a fragment.
+
+Set `strict_parts: True` on the series to refuse that match, then give
+Sonarr one episode per part with the part in its title
+(`Ricky Oyola (Part 1/5)`). Each then matches normally.
+
+Enabling it makes affected episodes show as missing until you split
+them. Existing files are untouched.
 
 **Check title matching:**
 
@@ -193,11 +200,19 @@ Causes, all fixed in current releases — pull a current image first:
 
 - A **playlist** in a channel-search result was returned instead of a
   video, so every episode received that playlist's first item.
-- A `(Part N)` upload satisfied a whole episode.
+- A part-1 upload matched a part-2 episode, because the brackets in
+  `(Part 2)` made their own contents optional.
 
-If it survives an upgrade, the remaining cause is a channel carrying
-more than one show, where an episode titled with just a person's name
-matches that person in the other show. Scope the series:
+Two causes are **not** fixed by upgrading alone, because each needs one
+config key.
+
+A `(Part N)` upload satisfying an episode Sonarr models as whole is
+opt-in to refuse — set `strict_parts: True` on the series (see
+"Missing - Episode Title" above).
+
+A channel carrying more than one show, where an episode titled with just
+a person's name matches that person in the other show, needs the series
+scoped:
 
 ```yaml
 series:
