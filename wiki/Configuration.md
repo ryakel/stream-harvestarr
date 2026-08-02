@@ -283,6 +283,7 @@ series:
 | `regex.sonarr.replace` | string | Optional | Replacement string for matched pattern |
 | `regex.site.match` | string | Optional | Regex pattern to match in site title |
 | `regex.site.replace` | string | Optional | Replacement string for matched pattern |
+| `regex.require` | string | Optional | A site title must contain this pattern to be considered. Scopes a series when one channel carries several shows |
 
 ## Example Complete Configuration
 

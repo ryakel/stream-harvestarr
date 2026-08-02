@@ -123,6 +123,13 @@ This is normal and means:
 - Episode hasn't been released yet
 - Episode title doesn't match TVDB exactly
 - Episode is not in the playlist/channel yet
+- The uploads are split into parts and the Sonarr episode is not
+
+**Multi-part uploads.** A `(Part N)` upload never satisfies an episode
+whose Sonarr title does not name a part — otherwise part 1 downloads,
+`hasFile` flips, and the rest are never fetched. Give Sonarr one
+episode per part, with the part in its title (`Ricky Oyola (Part 1/5)`),
+and each matches normally.
 
 **Check title matching:**
 
@@ -166,6 +173,39 @@ followed by webpage download, deno JS challenge, and m3u8 information
 HLS YouTube videos (most modern uploads); fixed in the release that
 addresses issue #114. Pull a current image (`:latest` or `:dev`) and
 re-run.
+
+### "No metadata returned for &lt;url&gt;"
+
+The whole playlist came back empty, so every episode in that series
+reports it. Usually **one** unplayable member is responsible, not the
+playlist: a private or deleted video has a null title, and older
+releases fed that straight to a regex, which failed the entire
+extraction. Fixed in the release that removes `matchtitle`; pull a
+current image.
+
+If it persists, open the URL in an incognito window to confirm the
+playlist is public and still exists.
+
+### Wrong episode downloaded
+
+Several episodes end up with the same video, often identical in size.
+Causes, all fixed in current releases — pull a current image first:
+
+- A **playlist** in a channel-search result was returned instead of a
+  video, so every episode received that playlist's first item.
+- A `(Part N)` upload satisfied a whole episode.
+
+If it survives an upgrade, the remaining cause is a channel carrying
+more than one show, where an episode titled with just a person's name
+matches that person in the other show. Scope the series:
+
+```yaml
+series:
+  - title: Series Name
+    url: https://www.youtube.com/@CHANNEL/search?query=...
+    regex:
+      require: "Series Name"
+```
 
 ### Format Selection Errors
 
@@ -332,6 +372,15 @@ Solution: Check volume permissions:
 ls -la /path/to/config
 chmod -R 755 /path/to/config
 ```
+
+4. **A failed download taking the process down:**
+```
+TypeError: unsupported operand type(s) for +: 'DownloadError' and 'int'
+```
+The error handler itself raised, so the scan died and the container
+restarted — repeatedly, for as long as downloads kept failing (rate
+limiting being the usual trigger). It also meant the configured
+exponential backoff never ran. Fixed; pull a current image.
 
 ### High CPU/Memory Usage
 
