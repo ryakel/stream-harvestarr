@@ -970,8 +970,15 @@ class StreamHarvester(object):
                                 if self.download_delay > 0:
                                     logger.debug("      Waiting {} seconds before next download".format(self.download_delay))
                                     time.sleep(self.download_delay)
-                            except Exception as e:
-                                error_msg = str(e)
+                            # NOT "as e": that is the enumerate index of the
+                            # episode, used by every log line in this block.
+                            # Shadowing it made "e + 1" a TypeError, which
+                            # escaped main() and restart-looped the container
+                            # the moment any download failed — and because the
+                            # rate-limit branch logs before it sleeps, the
+                            # exponential backoff below could never run.
+                            except Exception as err:
+                                error_msg = str(err)
                                 # Check if this is a rate limit error
                                 if 'rate-limited' in error_msg.lower() or 'rate limit' in error_msg.lower() or 'try again later' in error_msg.lower():
                                     self.rate_limit_count += 1
