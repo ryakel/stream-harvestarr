@@ -251,8 +251,32 @@ becomes the same video. `noplaylist` does not help — it only strips
 `playlist?list=...`.
 
 So `ytsearch()` does its own two checks on each entry — `is_single_video()`
-and `title_matches()` — before accepting it. `title_matches()` reads the
-pattern back off the opts dict it passed to yt-dlp, so the two can't drift.
+and `title_matches()` — before accepting it. `download()` builds the pattern
+once and hands the same value to both `ytdl_eps_search_opts()` and
+`ytsearch()`, so the check yt-dlp applies and the one we re-apply can't drift.
+
+### `regex.site` can't coexist with `matchtitle`
+
+`regex.site` rewrites the *site's* title before comparison — that's the whole
+point of it — but yt-dlp tests `matchtitle` against the **raw** title, so it
+would drop exactly the entries the regex exists to rescue, before `ytsearch()`
+ever sees them.
+
+So when a series configures `regex.site`, `ytdl_eps_search_opts()` deletes
+`matchtitle` and moves the check into the `match_filter` callable
+(`make_title_filter`), composing it with the existing shorts filter rather than
+replacing it. `match_filter` runs at the same points `matchtitle` does —
+including the cheap pre-filter over unresolved playlist entries — so early
+culling is preserved and a channel with hundreds of videos doesn't get fully
+extracted. Series *without* a site regex keep plain `matchtitle`, so the common
+path is untouched.
+
+`episode_title_matches()` is the single definition of "is this the episode",
+used by both the filter and the post-hoc verification. Keep it that way: if the
+filter and the verifier disagree, every search returns nothing.
+
+`regex.sonarr` is unrelated and goes the other direction — it rewrites the
+*Sonarr* episode title in `getseriesepisodes()` before the pattern is built.
 
 ### `upperescape` builds that pattern, and it is deliberately loose
 

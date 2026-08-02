@@ -71,23 +71,127 @@ def is_single_video(entry):
     return not COLLECTION_URL_RE.search(url)
 
 
-def title_matches(entry, matchtitle):
-    """Re-apply the matchtitle pattern to an entry ourselves.
+def apply_site_regex(title, site_regex):
+    """Rewrite a site-supplied title before it is matched.
 
-    yt-dlp is not a reliable filter here. When an entry fails matchtitle in
-    ``process_video_result`` it is returned anyway (just not downloaded), and
-    entries it can't confirm are a single video skip the check entirely. Both
-    land in ``result['entries']`` looking exactly like a match.
+    ``site_regex`` is a compiled (pattern, replacement) pair from the series'
+    ``regex.site`` config, or None. Used to strip decoration the site adds and
+    Sonarr doesn't have — "Episode 5 - Title (Extended Cut)" -> "Episode 5 -
+    Title" — so the two can be compared.
+    """
+    if not site_regex or not title:
+        return title
+    pattern, replacement = site_regex
+    return pattern.sub(replacement, title)
+
+
+def episode_title_matches(title, matchtitle, site_regex=None):
+    """True when a site title matches the episode pattern.
+
+    The single definition of "is this the episode we want". It is used twice
+    per search: by yt-dlp, wrapped in a match_filter so non-matching entries
+    are culled before they are fully extracted, and again by ytsearch() on
+    whatever survives.
+    """
+    if not matchtitle:
+        return True
+    if not title:
+        return False
+    return re.search(matchtitle, apply_site_regex(title, site_regex), re.IGNORECASE) is not None
+
+
+def title_matches(entry, matchtitle, site_regex=None):
+    """Re-apply the episode pattern to a result entry ourselves.
+
+    yt-dlp is not a reliable filter here. When an entry fails the title check
+    in ``process_video_result`` it is returned anyway (just not downloaded),
+    and entries it can't confirm are a single video skip the check entirely.
+    Both land in ``result['entries']`` looking exactly like a match.
 
     An entry with no title cannot be verified, so it is rejected: a missing
     episode is recoverable, a wrong one silently isn't.
     """
-    if not matchtitle:
-        return True
-    title = entry.get('title')
-    if not title:
-        return False
-    return re.search(matchtitle, title, re.IGNORECASE) is not None
+    return episode_title_matches(entry.get('title'), matchtitle, site_regex)
+
+
+def make_title_filter(matchtitle, site_regex, base_filter=None):
+    """Build the match_filter callable yt-dlp culls entries with.
+
+    Only used when the series configures ``regex.site``. Everywhere else the
+    plain ``matchtitle`` option does the job, and is left alone so the common
+    path stays exactly as it was.
+
+    ``matchtitle`` can't be used *with* a site regex: yt-dlp tests it against
+    the raw title, which is precisely the title the regex exists to rewrite,
+    so the entries a site regex is meant to rescue get dropped before we ever
+    see them. A match_filter runs at the same points — including the cheap
+    pre-filter over unresolved playlist entries — so moving the check here
+    costs no extra extraction.
+    """
+    def _filter(info_dict, incomplete=False):
+        if base_filter is not None:
+            rejected = base_filter(info_dict, incomplete)
+            if rejected is not None:
+                return rejected
+        title = info_dict.get('title')
+        if title is None:
+            # Nothing to test yet; a later pass with a full info dict will.
+            return None
+        if not episode_title_matches(title, matchtitle, site_regex):
+            return '"{}" did not match the episode after site regex'.format(title)
+        return None
+    return _filter
+
+
+# Keys filterseries() and merge_service_config() actually read. Anything else
+# in a series or service block is silently ignored by the config loader, which
+# makes a typo — or an invented key — indistinguishable from a working one.
+INHERITABLE_KEYS = frozenset((
+    'username', 'password', 'cookies_file', 'format',
+    'playlistreverse', 'offset', 'subtitles', 'regex',
+))
+KNOWN_SERIES_KEYS = INHERITABLE_KEYS | frozenset(('title', 'url', 'service'))
+KNOWN_SERVICE_KEYS = INHERITABLE_KEYS | frozenset(('title', 'url'))
+KNOWN_REGEX_KEYS = frozenset(('sonarr', 'site'))
+
+
+def warn_unknown_keys(entries, known, kind):
+    """Log config keys that nothing reads, so typos don't fail silently."""
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get('title', '?')
+        unknown = sorted(set(entry) - known)
+        if unknown:
+            logger.warning(
+                '{} "{}" has unrecognised config key(s): {} - these are ignored. '
+                'Valid keys: {}'.format(
+                    kind, name, ', '.join(unknown), ', '.join(sorted(known))
+                )
+            )
+        regex = entry.get('regex')
+        if isinstance(regex, dict):
+            unknown_regex = sorted(set(regex) - KNOWN_REGEX_KEYS)
+            if unknown_regex:
+                logger.warning(
+                    '{} "{}" has unrecognised regex key(s): {} - these are ignored. '
+                    'Valid keys: sonarr, site'.format(kind, name, ', '.join(unknown_regex))
+                )
+
+
+def compile_site_regex(match, replace, series_title):
+    """Compile a series' regex.site pair, or None if it is unusable."""
+    if match is None:
+        return None
+    try:
+        return (re.compile(match), replace if replace is not None else '')
+    except re.error as e:
+        logger.warning(
+            'Series "{}" has an invalid regex.site match pattern ({}) - ignoring'.format(
+                series_title, e
+            )
+        )
+        return None
 
 
 class StreamHarvester(object):
@@ -193,12 +297,14 @@ class StreamHarvester(object):
         # Series Setup
         try:
             self.series = cfg["series"]
+            warn_unknown_keys(self.series, KNOWN_SERIES_KEYS, 'Series')
         except Exception as e:
             sys.exit(f"Error with series config.yml values: {e}")
 
         # Services setup - optional, provides base config for series to inherit from
         try:
             self.services = {}
+            warn_unknown_keys(cfg.get('services', []), KNOWN_SERVICE_KEYS, 'Service')
             for svc in cfg.get('services', []):
                 self.services[svc['title']] = svc
             if self.services:
@@ -377,10 +483,9 @@ class StreamHarvester(object):
         # Copy series config so we never mutate the original YAML-parsed dict
         merged = dict(wnt)
 
-        # Inheritable keys: series value wins if present, else fall back to service
-        inheritable_keys = ('username', 'password', 'cookies_file', 'format',
-                            'playlistreverse', 'offset', 'subtitles', 'regex')
-        for key in inheritable_keys:
+        # Inheritable keys: series value wins if present, else fall back to
+        # service. Shared with the config-key validation so the two can't drift.
+        for key in sorted(INHERITABLE_KEYS):
             if key not in merged and key in svc:
                 merged[key] = svc[key]
                 logger.debug('  Inherited {} from service "{}"'.format(key, service_name))
@@ -448,6 +553,13 @@ class StreamHarvester(object):
                         if 'site' in regex:
                             ser['site_regex_match'] = regex['site']['match']
                             ser['site_regex_replace'] = regex['site']['replace']
+                            # Compile once per series, not once per episode:
+                            # an invalid pattern should warn a single time.
+                            ser['site_regex'] = compile_site_regex(
+                                regex['site']['match'],
+                                regex['site'].get('replace'),
+                                ser['title'],
+                            )
                     if 'offset' in wnt:
                         ser['offset'] = wnt['offset']
                     if 'cookies_file' in wnt:
@@ -576,18 +688,26 @@ class StreamHarvester(object):
         else:
             return ytdlopts
 
-    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None, username=None, password=None):
+    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None, username=None,
+                             password=None, site_regex=None):
+        # Exclude YouTube Shorts. match_filter takes a callable, negation
+        # goes between the key and the operator, and the '?' keeps entries
+        # whose url is absent (merged formats have no top-level url).
+        shorts_filter = match_filter_func('url !*=? /shorts/')
         ytdlopts = {
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
             'matchtitle': regextitle,
             'quiet': True,
-            # Exclude YouTube Shorts. match_filter takes a callable, negation
-            # goes between the key and the operator, and the '?' keeps entries
-            # whose url is absent (merged formats have no top-level url).
-            'match_filter': match_filter_func('url !*=? /shorts/'),
+            'match_filter': shorts_filter,
             'js_runtimes': JS_RUNTIMES,
         }
+        if site_regex is not None:
+            # The title check moves into the match_filter so it can run against
+            # the rewritten title. matchtitle would test the raw one and drop
+            # the entries the regex is there to rescue. See make_title_filter.
+            del ytdlopts['matchtitle']
+            ytdlopts['match_filter'] = make_title_filter(regextitle, site_regex, shorts_filter)
         if self.debug is True:
             ytdlopts.update({
                 'quiet': False,
@@ -600,7 +720,7 @@ class StreamHarvester(object):
             logger.debug('yt-dlp opts configured for episode matching')
         return ytdlopts
 
-    def ytsearch(self, ydl_opts, playlist):
+    def ytsearch(self, ydl_opts, playlist, matchtitle=None, site_regex=None):
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result = ydl.extract_info(
@@ -616,9 +736,11 @@ class StreamHarvester(object):
             if result is None:
                 logger.error('No metadata returned for {}'.format(playlist))
                 return False, ''
-            # The pattern yt-dlp was given, re-read off the same opts dict so
-            # our check can never drift from the one it applied.
-            matchtitle = ydl_opts.get('matchtitle')
+            # The caller passes the same pattern object it built the opts from,
+            # so our check can't drift from the one yt-dlp applied. The fallback
+            # covers callers that only set it in the opts dict.
+            if matchtitle is None:
+                matchtitle = ydl_opts.get('matchtitle')
             entries = result.get('entries')
             candidates = list(entries) if entries else [result]
             for entry in candidates:
@@ -629,7 +751,7 @@ class StreamHarvester(object):
                         entry.get('title') or entry.get('url')
                     ))
                     continue
-                if not title_matches(entry, matchtitle):
+                if not title_matches(entry, matchtitle, site_regex):
                     logger.debug('  Skipping title mismatch: {}'.format(entry.get('title')))
                     continue
                 # Prefer webpage_url over url: yt-dlp's YouTube extractor only
@@ -667,8 +789,12 @@ class StreamHarvester(object):
                             username = ser['username']
                         if 'password' in ser:
                             password = ser['password']
-                        ydleps = self.ytdl_eps_search_opts(upperescape(eps['title']), ser['playlistreverse'], cookies, username, password)
-                        found, dlurl = self.ytsearch(ydleps, url)
+                        # Build the pattern once and hand the same value to the
+                        # search opts and to the verification inside ytsearch.
+                        matchtitle = upperescape(eps['title'])
+                        site_regex = ser.get('site_regex')
+                        ydleps = self.ytdl_eps_search_opts(matchtitle, ser['playlistreverse'], cookies, username, password, site_regex)
+                        found, dlurl = self.ytsearch(ydleps, url, matchtitle, site_regex)
                         if found:
                             logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
                             season = self.format_season(eps['seasonNumber'])
