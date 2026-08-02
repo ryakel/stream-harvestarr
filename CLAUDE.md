@@ -255,7 +255,27 @@ and `title_matches()` — before accepting it. `download()` builds the pattern
 once and hands the same value to both `ytdl_eps_search_opts()` and
 `ytsearch()`, so the check yt-dlp applies and the one we re-apply can't drift.
 
-### `regex.site` can't coexist with `matchtitle`
+### Never set `matchtitle` — one null title kills the whole extraction
+
+`_match_entry` guards the title check with `if 'title' in info_dict`: the key
+being *present* is not the value being a string. A private or deleted playlist
+member has `title: None`, which goes straight into `re.search` and raises
+`TypeError: expected string or bytes-like object, got 'NoneType'`. That
+propagates out of `extract_info`, `ignoreerrors` swallows it, and the result is
+`None` for the **entire playlist** — every episode reports "No metadata
+returned", pointing at the playlist rather than at the one bad video.
+
+A 517-video Hot Ones playlist with a single private member (`PtR_Wzf94C4`)
+returned nothing at all, for all 31 missing episodes, and looked exactly like a
+dead playlist or a cookie problem. Flat-extracting the same url by hand worked
+fine, which made it look like throttling. It wasn't.
+
+So `ytdl_eps_search_opts()` never sets `matchtitle`. The title check always
+lives in the `make_title_filter` callable, which treats a null title as "keep,
+decide later" — extraction fails on its own if the video is dead, and
+`ytsearch()` rejects a null title before returning it.
+
+### `regex.site` can't coexist with `matchtitle` either
 
 `regex.site` rewrites the *site's* title before comparison — that's the whole
 point of it — but yt-dlp tests `matchtitle` against the **raw** title, so it

@@ -21,8 +21,11 @@ sys.argv = sys.argv[:1]
 import stream_harvestarr  # noqa: E402
 
 # Shapes taken from a flat extraction of a channel's shorts and videos tabs.
-SHORT = {'id': 'vWMkRkYbq5A', 'title': 'a clip', 'url': 'https://www.youtube.com/shorts/vWMkRkYbq5A'}
-EPISODE = {'id': 'mc9WVVAUQGE', 'title': 'an episode', 'url': 'https://www.youtube.com/watch?v=mc9WVVAUQGE'}
+# The filter now also checks the episode title, so both fixtures carry a title
+# that matches PATTERN — otherwise a pass would prove nothing about Shorts.
+PATTERN = 'SOME[\\ ]*EPISODE'
+SHORT = {'id': 'vWMkRkYbq5A', 'title': 'some episode', 'url': 'https://www.youtube.com/shorts/vWMkRkYbq5A'}
+EPISODE = {'id': 'mc9WVVAUQGE', 'title': 'some episode', 'url': 'https://www.youtube.com/watch?v=mc9WVVAUQGE'}
 
 
 class TestShortsFilter(unittest.TestCase):
@@ -35,7 +38,7 @@ class TestShortsFilter(unittest.TestCase):
         self.client.debug = False
 
     def match_filter(self):
-        opts = self.client.ytdl_eps_search_opts('SOME[\\ ]*EPISODE', 'False')
+        opts = self.client.ytdl_eps_search_opts(PATTERN, 'False')
         return opts['match_filter']
 
     def test_filter_is_callable(self):
@@ -51,9 +54,27 @@ class TestShortsFilter(unittest.TestCase):
 
     def test_missing_url_is_kept(self):
         """Merged formats have no top-level url; those must not be dropped."""
-        entry = {'id': 'x', 'title': 'y'}
+        entry = {'id': 'x', 'title': 'some episode'}
         self.assertIsNone(self.match_filter()(entry))
         self.assertIsNone(self.match_filter()(entry, incomplete=True))
+
+    def test_null_title_is_kept(self):
+        """A private/deleted playlist member has title=None.
+
+        yt-dlp's own matchtitle hands that straight to re.search and raises
+        TypeError, which ignoreerrors turns into a None result for the entire
+        playlist. The filter must tolerate it instead.
+        """
+        entry = {'id': 'PtR_Wzf94C4', 'title': None,
+                 'url': 'https://www.youtube.com/watch?v=PtR_Wzf94C4'}
+        self.assertIsNone(self.match_filter()(entry))
+        self.assertIsNone(self.match_filter()(entry, incomplete=True))
+
+    def test_wrong_title_is_skipped(self):
+        """The same filter still does the episode matching."""
+        self.assertIsNotNone(self.match_filter()(
+            {'id': 'z', 'title': 'a different episode',
+             'url': 'https://www.youtube.com/watch?v=z'}))
 
 
 if __name__ == '__main__':

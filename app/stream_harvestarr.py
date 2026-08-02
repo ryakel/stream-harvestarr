@@ -117,16 +117,24 @@ def title_matches(entry, matchtitle, site_regex=None):
 def make_title_filter(matchtitle, site_regex, base_filter=None):
     """Build the match_filter callable yt-dlp culls entries with.
 
-    Only used when the series configures ``regex.site``. Everywhere else the
-    plain ``matchtitle`` option does the job, and is left alone so the common
-    path stays exactly as it was.
+    This replaces yt-dlp's ``matchtitle`` option outright. Two reasons, either
+    sufficient on its own:
 
-    ``matchtitle`` can't be used *with* a site regex: yt-dlp tests it against
-    the raw title, which is precisely the title the regex exists to rewrite,
-    so the entries a site regex is meant to rescue get dropped before we ever
-    see them. A match_filter runs at the same points — including the cheap
-    pre-filter over unresolved playlist entries — so moving the check here
-    costs no extra extraction.
+    1. **A single null title kills the whole extraction.** ``_match_entry``
+       guards with ``if 'title' in info_dict`` — key present, value possibly
+       None — then hands it straight to ``re.search``. One private or deleted
+       video in a playlist raises TypeError, ``ignoreerrors`` swallows it, and
+       ``extract_info`` returns None for *every* entry. A 517-video playlist
+       with one private member returned nothing at all, for every episode, and
+       the log line ("No metadata returned") pointed at the playlist rather
+       than at the one bad video.
+    2. **It can't be combined with a site regex.** ``matchtitle`` tests the raw
+       title, which is precisely the title ``regex.site`` exists to rewrite, so
+       the entries the regex is meant to rescue get dropped before we see them.
+
+    A match_filter runs at the same points ``matchtitle`` does — including the
+    cheap pre-filter over unresolved playlist entries — so the early culling
+    that keeps a large channel affordable is unchanged.
     """
     def _filter(info_dict, incomplete=False):
         if base_filter is not None:
@@ -135,10 +143,12 @@ def make_title_filter(matchtitle, site_regex, base_filter=None):
                 return rejected
         title = info_dict.get('title')
         if title is None:
-            # Nothing to test yet; a later pass with a full info dict will.
+            # Unavailable video, or a pre-filter pass that hasn't resolved the
+            # title yet. Keep it: extraction will fail on its own if it's dead,
+            # and ytsearch rejects a null title before ever returning it.
             return None
         if not episode_title_matches(title, matchtitle, site_regex):
-            return '"{}" did not match the episode after site regex'.format(title)
+            return '"{}" did not match the episode'.format(title)
         return None
     return _filter
 
@@ -697,17 +707,12 @@ class StreamHarvester(object):
         ytdlopts = {
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
-            'matchtitle': regextitle,
             'quiet': True,
-            'match_filter': shorts_filter,
+            # The title check lives in the match_filter, never in yt-dlp's
+            # 'matchtitle' option. See make_title_filter for why.
+            'match_filter': make_title_filter(regextitle, site_regex, shorts_filter),
             'js_runtimes': JS_RUNTIMES,
         }
-        if site_regex is not None:
-            # The title check moves into the match_filter so it can run against
-            # the rewritten title. matchtitle would test the raw one and drop
-            # the entries the regex is there to rescue. See make_title_filter.
-            del ytdlopts['matchtitle']
-            ytdlopts['match_filter'] = make_title_filter(regextitle, site_regex, shorts_filter)
         if self.debug is True:
             ytdlopts.update({
                 'quiet': False,

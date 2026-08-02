@@ -108,21 +108,22 @@ class TestEpisodeTitleMatches(unittest.TestCase):
                 'Hot Ones S20 | First We Feast', matchtitle, STRIP_SUFFIX))
 
 
-class TestSearchOptsSwapMatchtitle(unittest.TestCase):
-    """matchtitle and a site regex are mutually exclusive by construction."""
+class TestSearchOptsNeverUsesMatchtitle(unittest.TestCase):
+    """The title check is always ours, never yt-dlp's matchtitle option."""
 
     def opts(self, site_regex):
         return stream_harvestarr.StreamHarvester.ytdl_eps_search_opts(
             _NoDebug(), upperescape('Ben Kadow'), False, site_regex=site_regex)
 
-    def test_without_site_regex_matchtitle_is_used(self):
-        opts = self.opts(None)
-        self.assertIn('matchtitle', opts)
+    def test_matchtitle_is_never_set(self):
+        """One null title in a playlist makes matchtitle raise TypeError,
+        which ignoreerrors turns into a None result for every entry."""
+        self.assertNotIn('matchtitle', self.opts(None))
+        self.assertNotIn('matchtitle', self.opts(STRIP_PARENS))
 
-    def test_with_site_regex_matchtitle_is_removed(self):
-        opts = self.opts(STRIP_PARENS)
-        self.assertNotIn('matchtitle', opts)
-        self.assertTrue(callable(opts['match_filter']))
+    def test_filter_is_installed_either_way(self):
+        self.assertTrue(callable(self.opts(None)['match_filter']))
+        self.assertTrue(callable(self.opts(STRIP_PARENS)['match_filter']))
 
     def test_filter_rejects_a_non_matching_title(self):
         f = self.opts(STRIP_PARENS)['match_filter']
