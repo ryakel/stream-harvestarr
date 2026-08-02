@@ -298,6 +298,29 @@ filter and the verifier disagree, every search returns nothing.
 `regex.sonarr` is unrelated and goes the other direction — it rewrites the
 *Sonarr* episode title in `getseriesepisodes()` before the pattern is built.
 
+### A match can be real and still be the wrong video
+
+Two rules in `MatchRules` exist because "the pattern matched" is not the same
+as "this is the episode". Both are checked against the **raw** title, before
+any `regex.site` rewrite — a site regex usually strips exactly the suffix they
+depend on.
+
+- **`regex.require`** scopes a series to one show on a shared channel. Episode
+  titles are often just a person's name, and a channel carrying several shows
+  will have that person in more than one. "Max Schaaf" matched *Let It Kill
+  You*, not *Epicly Later'd*; so did "Arto Saari", which had a correct
+  candidate available but listed second.
+- **Part refusal** stops one upload standing in for a whole episode. If the
+  Sonarr title names no part, candidates that do are rejected. Otherwise part
+  1 downloads, `hasFile` flips, and the other parts are never fetched — the
+  episode looks complete and is 20% of itself. `PART_RE` is deliberately broad:
+  a false positive costs one episode staying missing, a false negative files a
+  fragment as the whole thing.
+
+Both rules are also installed in the `match_filter`, not just in `ytsearch`'s
+verification, so wrong-series and part uploads are culled before extraction
+rather than after.
+
 ### `upperescape` builds that pattern, and it is deliberately loose
 
 Punctuation is made optional to absorb human inconsistency between the

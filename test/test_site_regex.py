@@ -96,7 +96,7 @@ class TestEpisodeTitleMatches(unittest.TestCase):
         self.assertFalse(
             stream_harvestarr.episode_title_matches(site_title, matchtitle))
         self.assertTrue(
-            stream_harvestarr.episode_title_matches(site_title, matchtitle, STRIP_PARENS))
+            stream_harvestarr.episode_title_matches(site_title, matchtitle, stream_harvestarr.MatchRules(site_regex=STRIP_PARENS)))
 
     def test_rewrite_can_also_prevent_a_false_match(self):
         """Stripping the suffix stops an episode matching on decoration."""
@@ -105,7 +105,8 @@ class TestEpisodeTitleMatches(unittest.TestCase):
             stream_harvestarr.episode_title_matches('Hot Ones S20 | First We Feast', matchtitle))
         self.assertFalse(
             stream_harvestarr.episode_title_matches(
-                'Hot Ones S20 | First We Feast', matchtitle, STRIP_SUFFIX))
+                'Hot Ones S20 | First We Feast', matchtitle,
+                stream_harvestarr.MatchRules(site_regex=STRIP_SUFFIX)))
 
 
 class TestSearchOptsNeverUsesMatchtitle(unittest.TestCase):
@@ -113,7 +114,7 @@ class TestSearchOptsNeverUsesMatchtitle(unittest.TestCase):
 
     def opts(self, site_regex):
         return stream_harvestarr.StreamHarvester.ytdl_eps_search_opts(
-            _NoDebug(), upperescape('Ben Kadow'), False, site_regex=site_regex)
+            _NoDebug(), upperescape('Ben Kadow'), False, rules=stream_harvestarr.MatchRules(site_regex=site_regex))
 
     def test_matchtitle_is_never_set(self):
         """One null title in a playlist makes matchtitle raise TypeError,
@@ -132,7 +133,7 @@ class TestSearchOptsNeverUsesMatchtitle(unittest.TestCase):
     def test_filter_keeps_a_title_the_regex_rescues(self):
         f = stream_harvestarr.StreamHarvester.ytdl_eps_search_opts(
             _NoDebug(), upperescape('Ben Kadow') + '$', False,
-            site_regex=STRIP_PARENS)['match_filter']
+            rules=stream_harvestarr.MatchRules(site_regex=STRIP_PARENS))['match_filter']
         self.assertIsNone(f({'title': 'Ben Kadow (Extended Cut)', 'url': 'https://youtu.be/x'}))
 
     def test_filter_still_excludes_shorts(self):
@@ -158,7 +159,8 @@ class TestYtsearchUsesSiteRegex(unittest.TestCase):
     def ytsearch(self, result, matchtitle, site_regex):
         stream_harvestarr.yt_dlp.YoutubeDL = lambda opts: FakeYoutubeDL(result)
         return stream_harvestarr.StreamHarvester.ytsearch(
-            None, {}, PLAYLIST, matchtitle, site_regex)
+            None, {}, PLAYLIST, matchtitle,
+            stream_harvestarr.MatchRules(site_regex=site_regex))
 
     def test_verification_applies_the_same_rewrite(self):
         """Otherwise ytsearch would reject what the filter just accepted."""

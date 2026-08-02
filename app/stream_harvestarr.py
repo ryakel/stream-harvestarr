@@ -2,6 +2,7 @@ import requests
 import urllib.parse
 import yt_dlp
 from yt_dlp.utils import match_filter_func
+import collections
 import os
 import sys
 import re
@@ -85,23 +86,59 @@ def apply_site_regex(title, site_regex):
     return pattern.sub(replacement, title)
 
 
-def episode_title_matches(title, matchtitle, site_regex=None):
+# "Part N" markers, in the shapes uploaders actually use. Deliberately broad:
+# a false positive costs one episode staying missing, a false negative files a
+# fragment as the whole episode.
+PART_RE = re.compile(r"""
+    \(\s*(?:part|pt\.?)?\s*\d+\s*(?:[/⧸]\s*\d+)?\s*\)      # (Part 1/5) (Part 1) (1/5)
+  | \b(?:part|pt\.?)\s*\d+\s*(?:[/⧸]|\s+o[fr]\s+)\s*\d+    # Part 1 of 2, Pt. 1/17, "1 or 3"
+  | \b\d+\s+of\s+\d+\b                                      # 1 of 4
+  | \b(?:part|pt\.?)\s*\d+\b                                # Part 2
+""", re.IGNORECASE | re.VERBOSE)
+
+
+def has_part_marker(title):
+    """True when a title advertises itself as one part of a longer whole."""
+    return bool(title) and PART_RE.search(title) is not None
+
+
+# The per-series rules that decide whether a candidate title is the episode.
+# Bundled rather than passed as four positional arguments through four layers.
+#   site_regex:  compiled (pattern, replacement) from regex.site, or None
+#   require:     compiled pattern a title must contain, from regex.require
+#   allow_parts: whether a "Part N" upload may satisfy this episode
+MatchRules = collections.namedtuple(
+    'MatchRules', ('site_regex', 'require', 'allow_parts'), defaults=(None, None, True))
+DEFAULT_RULES = MatchRules()
+
+
+def episode_title_matches(title, matchtitle, rules=DEFAULT_RULES):
     """True when a site title matches the episode pattern.
 
     The single definition of "is this the episode we want". It is used twice
     per search: by yt-dlp, wrapped in a match_filter so non-matching entries
     are culled before they are fully extracted, and again by ytsearch() on
     whatever survives.
+
+    ``require`` and the part check both read the *raw* title, deliberately.
+    A site regex often strips exactly the decoration those two rely on — the
+    series name lives in the suffix that regex.site is usually there to remove.
     """
+    if not title:
+        # Nothing to verify against, so accept only when no rule constrains us.
+        return not matchtitle and rules.require is None and rules.allow_parts
+    if rules.require is not None and not rules.require.search(title):
+        return False
+    if not rules.allow_parts and has_part_marker(title):
+        return False
     if not matchtitle:
         return True
-    if not title:
-        return False
-    return re.search(matchtitle, apply_site_regex(title, site_regex), re.IGNORECASE) is not None
+    return re.search(
+        matchtitle, apply_site_regex(title, rules.site_regex), re.IGNORECASE) is not None
 
 
-def title_matches(entry, matchtitle, site_regex=None):
-    """Re-apply the episode pattern to a result entry ourselves.
+def title_matches(entry, matchtitle, rules=DEFAULT_RULES):
+    """Re-apply the episode rules to a result entry ourselves.
 
     yt-dlp is not a reliable filter here. When an entry fails the title check
     in ``process_video_result`` it is returned anyway (just not downloaded),
@@ -111,10 +148,10 @@ def title_matches(entry, matchtitle, site_regex=None):
     An entry with no title cannot be verified, so it is rejected: a missing
     episode is recoverable, a wrong one silently isn't.
     """
-    return episode_title_matches(entry.get('title'), matchtitle, site_regex)
+    return episode_title_matches(entry.get('title'), matchtitle, rules)
 
 
-def make_title_filter(matchtitle, site_regex, base_filter=None):
+def make_title_filter(matchtitle, rules=DEFAULT_RULES, base_filter=None):
     """Build the match_filter callable yt-dlp culls entries with.
 
     This replaces yt-dlp's ``matchtitle`` option outright. Two reasons, either
@@ -147,7 +184,7 @@ def make_title_filter(matchtitle, site_regex, base_filter=None):
             # title yet. Keep it: extraction will fail on its own if it's dead,
             # and ytsearch rejects a null title before ever returning it.
             return None
-        if not episode_title_matches(title, matchtitle, site_regex):
+        if not episode_title_matches(title, matchtitle, rules):
             return '"{}" did not match the episode'.format(title)
         return None
     return _filter
@@ -162,7 +199,7 @@ INHERITABLE_KEYS = frozenset((
 ))
 KNOWN_SERIES_KEYS = INHERITABLE_KEYS | frozenset(('title', 'url', 'service'))
 KNOWN_SERVICE_KEYS = INHERITABLE_KEYS | frozenset(('title', 'url'))
-KNOWN_REGEX_KEYS = frozenset(('sonarr', 'site'))
+KNOWN_REGEX_KEYS = frozenset(('sonarr', 'site', 'require'))
 
 
 def warn_unknown_keys(entries, known, kind):
@@ -198,6 +235,29 @@ def compile_site_regex(match, replace, series_title):
     except re.error as e:
         logger.warning(
             'Series "{}" has an invalid regex.site match pattern ({}) - ignoring'.format(
+                series_title, e
+            )
+        )
+        return None
+
+
+def compile_require(pattern, series_title):
+    """Compile a series' regex.require pattern, or None if unusable.
+
+    A candidate title must contain this to be considered. It exists because an
+    episode title is often just a person's name, and a channel that carries
+    more than one show will have that person in another show too: Sonarr's
+    "Max Schaaf" matched "From Vert Legend to Chopper Icon: Max Schaaf | Let
+    It Kill You", a different series on the same channel. Requiring the show
+    name in the upload title scopes the search to the right series.
+    """
+    if pattern is None:
+        return None
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error as e:
+        logger.warning(
+            'Series "{}" has an invalid regex.require pattern ({}) - ignoring'.format(
                 series_title, e
             )
         )
@@ -570,6 +630,9 @@ class StreamHarvester(object):
                                 regex['site'].get('replace'),
                                 ser['title'],
                             )
+                        if 'require' in regex:
+                            ser['site_require'] = compile_require(
+                                regex['require'], ser['title'])
                     if 'offset' in wnt:
                         ser['offset'] = wnt['offset']
                     if 'cookies_file' in wnt:
@@ -699,7 +762,7 @@ class StreamHarvester(object):
             return ytdlopts
 
     def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None, username=None,
-                             password=None, site_regex=None):
+                             password=None, rules=DEFAULT_RULES):
         # Exclude YouTube Shorts. match_filter takes a callable, negation
         # goes between the key and the operator, and the '?' keeps entries
         # whose url is absent (merged formats have no top-level url).
@@ -710,7 +773,7 @@ class StreamHarvester(object):
             'quiet': True,
             # The title check lives in the match_filter, never in yt-dlp's
             # 'matchtitle' option. See make_title_filter for why.
-            'match_filter': make_title_filter(regextitle, site_regex, shorts_filter),
+            'match_filter': make_title_filter(regextitle, rules, shorts_filter),
             'js_runtimes': JS_RUNTIMES,
         }
         if self.debug is True:
@@ -725,7 +788,7 @@ class StreamHarvester(object):
             logger.debug('yt-dlp opts configured for episode matching')
         return ytdlopts
 
-    def ytsearch(self, ydl_opts, playlist, matchtitle=None, site_regex=None):
+    def ytsearch(self, ydl_opts, playlist, matchtitle=None, rules=DEFAULT_RULES):
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result = ydl.extract_info(
@@ -756,7 +819,7 @@ class StreamHarvester(object):
                         entry.get('title') or entry.get('url')
                     ))
                     continue
-                if not title_matches(entry, matchtitle, site_regex):
+                if not title_matches(entry, matchtitle, rules):
                     logger.debug('  Skipping title mismatch: {}'.format(entry.get('title')))
                     continue
                 # Prefer webpage_url over url: yt-dlp's YouTube extractor only
@@ -797,9 +860,17 @@ class StreamHarvester(object):
                         # Build the pattern once and hand the same value to the
                         # search opts and to the verification inside ytsearch.
                         matchtitle = upperescape(eps['title'])
-                        site_regex = ser.get('site_regex')
-                        ydleps = self.ytdl_eps_search_opts(matchtitle, ser['playlistreverse'], cookies, username, password, site_regex)
-                        found, dlurl = self.ytsearch(ydleps, url, matchtitle, site_regex)
+                        # An episode Sonarr models as whole is not satisfied by
+                        # one "Part N" upload: taking part 1 flips hasFile and
+                        # the rest is never fetched. Only an episode that names
+                        # a part may match a part.
+                        rules = MatchRules(
+                            site_regex=ser.get('site_regex'),
+                            require=ser.get('site_require'),
+                            allow_parts=has_part_marker(eps['title']),
+                        )
+                        ydleps = self.ytdl_eps_search_opts(matchtitle, ser['playlistreverse'], cookies, username, password, rules)
+                        found, dlurl = self.ytsearch(ydleps, url, matchtitle, rules)
                         if found:
                             logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
                             season = self.format_season(eps['seasonNumber'])

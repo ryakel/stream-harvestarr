@@ -395,7 +395,44 @@ series:
       site:
         match: 'pattern'
         replace: 'replacement'
+      require: 'pattern'
 ```
+
+`sonarr` rewrites the **Sonarr** episode title before the pattern is built.
+`site` rewrites the **site's** title before it is compared. `require` doesn't
+rewrite anything — a candidate title must contain it or it is not considered
+at all.
+
+### Scoping a search to one show on a shared channel
+
+Reach for `require` when the channel carries more than one series. An episode
+title is often just a person's name, and that person turns up in every show
+they appear in:
+
+```yaml
+  - title: Epicly Later'd
+    url: "https://www.youtube.com/@VICE/search?query=epicly laterd"
+    regex:
+      require: "Epicly Later"
+```
+
+Without it, the episode "Max Schaaf" matches *From Vert Legend to Chopper Icon:
+Max Schaaf | Let It Kill You* — right person, wrong series.
+
+`require` and `site` are checked against the **raw** title, before any `site`
+rewrite. That is deliberate: the show name usually lives in the very suffix a
+`site` regex is there to strip.
+
+### Multi-part uploads
+
+An episode Sonarr models as whole is never satisfied by a single "Part N"
+upload. If the Sonarr episode title does not name a part, candidates that do
+are rejected — otherwise part 1 downloads, `hasFile` flips, and the remaining
+parts are never fetched. Recognised shapes include `(Part 1/5)`, `(Part 1)`,
+`Part 1 of 2`, `1 of 4` and `Pt. 1/17`.
+
+To collect a split documentary, give Sonarr one episode per part with the part
+in its title (`Ricky Oyola (Part 1/5)`); those match normally.
 
 ### Common Regex Examples
 
