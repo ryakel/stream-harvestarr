@@ -102,6 +102,21 @@ def has_part_marker(title):
     return bool(title) and PART_RE.search(title) is not None
 
 
+def path_safe(name):
+    """Make a title safe to interpolate into an output template.
+
+    Only path separators are touched. They are the characters that change the
+    *shape* of the output rather than just the name: yt-dlp sanitizes what it
+    substitutes for its own fields, but a separator we bake into the template
+    ourselves is indistinguishable from one we meant, so it silently creates a
+    directory. Replacements match yt-dlp's own (U+29F8 / U+29F9), so a title
+    written by either route looks the same on disk.
+    """
+    if not name:
+        return name
+    return name.replace('/', '⧸').replace('\\', '⧹')
+
+
 # The per-series rules that decide whether a candidate title is the episode.
 # Bundled rather than passed as four positional arguments through four layers.
 #   site_regex:  compiled (pattern, replacement) from regex.site, or None
@@ -898,13 +913,21 @@ class StreamHarvester(object):
                                 'format': self.ytdl_format,
                                 'quiet': True,
                                 "merge_output_format": self.ytdl_merge_output_format,
+                                # Titles are interpolated into the *template*,
+                                # so yt-dlp reads any separator in them as a
+                                # real one and silently nests the download in a
+                                # directory. "James Kelch (Part 1/2)" landed in
+                                # ".../James Kelch (Part 1/2) WEBDL.mkv" — a
+                                # folder and a file. Only multi-part episodes
+                                # carry a slash, so this went unnoticed until
+                                # they were monitored.
                                 'outtmpl': '{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s'.format(
                                     self.root_folder,
                                     ser['path'],
                                     season,
-                                    ser['title'],
+                                    path_safe(ser['title']),
                                     episode,
-                                    eps['title']
+                                    path_safe(eps['title'])
                                 ),
                                 'progress_hooks': [ytdl_hooks],
                                 'noplaylist': True,
