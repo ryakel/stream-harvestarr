@@ -1,6 +1,8 @@
 import requests
 import urllib.parse
 import yt_dlp
+from yt_dlp.utils import match_filter_func
+import collections
 import os
 import sys
 import re
@@ -31,6 +33,270 @@ SCANINTERVAL = 60
 # node (installed on every image, including 386/armv7 where deno is not
 # packaged for Alpine).  See issue #96.
 JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
+
+# yt-dlp results that are a *collection* rather than one video. Three shapes
+# reach ytsearch(): a resolved playlist ('playlist' / 'multi_video'), an
+# unresolved reference to one (_type 'url' whose url is a playlist or channel
+# page), and the top-level result for the configured url when nothing in it
+# matched. None of them may be handed to download(): with a fixed outtmpl and
+# nooverwrites, yt-dlp writes the collection's *first* item into the episode's
+# filename, so every episode gets the same wrong video.
+#
+# This is not theoretical. A channel-search url
+# (https://www.youtube.com/@CHANNEL/search?query=...) returns playlist entries
+# interleaved with videos, and YoutubeDL._match_entry deliberately skips
+# matchtitle for entries it can't confirm are a single video — so the playlist
+# sitting at index 0 was never filtered and won every episode.
+COLLECTION_TYPES = ('playlist', 'multi_video')
+# Markers that positively identify one video. Checked first so a legitimate
+# watch?v=ID&list=ID url isn't discarded along with the collections.
+VIDEO_URL_RE = re.compile(
+    r'(?:/watch\b|[?&]v=|/shorts/|youtu\.be/|/embed/)',
+    re.IGNORECASE
+)
+COLLECTION_URL_RE = re.compile(
+    r'(?:/playlist\b|[?&]list=|/@[^/]+/|/channel/|/user/|/c/|/results\b|/search\b)',
+    re.IGNORECASE
+)
+
+
+def is_single_video(entry):
+    """True when a yt-dlp result entry is one downloadable video."""
+    if entry.get('_type') in COLLECTION_TYPES:
+        return False
+    if entry.get('entries') is not None:
+        return False
+    url = entry.get('webpage_url') or entry.get('url') or ''
+    if VIDEO_URL_RE.search(url):
+        return True
+    return not COLLECTION_URL_RE.search(url)
+
+
+def apply_site_regex(title, site_regex):
+    """Rewrite a site-supplied title before it is matched.
+
+    ``site_regex`` is a compiled (pattern, replacement) pair from the series'
+    ``regex.site`` config, or None. Used to strip decoration the site adds and
+    Sonarr doesn't have — "Episode 5 - Title (Extended Cut)" -> "Episode 5 -
+    Title" — so the two can be compared.
+    """
+    if not site_regex or not title:
+        return title
+    pattern, replacement = site_regex
+    return pattern.sub(replacement, title)
+
+
+# "Part N" markers, in the shapes uploaders actually use. Deliberately broad:
+# a false positive costs one episode staying missing, a false negative files a
+# fragment as the whole episode.
+PART_RE = re.compile(r"""
+    \(\s*(?:part|pt\.?)?\s*\d+\s*(?:[/⧸]\s*\d+)?\s*\)      # (Part 1/5) (Part 1) (1/5)
+  | \b(?:part|pt\.?)\s*\d+\s*(?:[/⧸]|\s+o[fr]\s+)\s*\d+    # Part 1 of 2, Pt. 1/17, "1 or 3"
+  | \b\d+\s+of\s+\d+\b                                      # 1 of 4
+  | \b(?:part|pt\.?)\s*\d+\b                                # Part 2
+""", re.IGNORECASE | re.VERBOSE)
+
+
+def has_part_marker(title):
+    """True when a title advertises itself as one part of a longer whole."""
+    return bool(title) and PART_RE.search(title) is not None
+
+
+def parts_allowed(episode_title, strict_parts):
+    """Whether a "Part N" upload may satisfy this Sonarr episode.
+
+    Opt-in, and off by default. When off, any candidate may match: part 1 of a
+    split documentary satisfies an episode Sonarr models as whole, flips
+    ``hasFile``, and the remaining parts are never fetched — the episode looks
+    complete and is a fragment. That is the wrong behaviour, but it is the
+    behaviour users' libraries were built against, so correcting it silently
+    would make a third of an affected library go missing on upgrade.
+
+    With ``strict_parts`` on, intent is read from Sonarr's own title rather
+    than from more config: an episode that names a part accepts a part, an
+    episode that does not, does not.
+    """
+    if not strict_parts:
+        return True
+    return has_part_marker(episode_title)
+
+
+def path_safe(name):
+    """Make a title safe to interpolate into an output template.
+
+    Only path separators are touched. They are the characters that change the
+    *shape* of the output rather than just the name: yt-dlp sanitizes what it
+    substitutes for its own fields, but a separator we bake into the template
+    ourselves is indistinguishable from one we meant, so it silently creates a
+    directory. Replacements match yt-dlp's own (U+29F8 / U+29F9), so a title
+    written by either route looks the same on disk.
+    """
+    if not name:
+        return name
+    return name.replace('/', '⧸').replace('\\', '⧹')
+
+
+# The per-series rules that decide whether a candidate title is the episode.
+# Bundled rather than passed as four positional arguments through four layers.
+#   site_regex:  compiled (pattern, replacement) from regex.site, or None
+#   require:     compiled pattern a title must contain, from regex.require
+#   allow_parts: whether a "Part N" upload may satisfy this episode
+MatchRules = collections.namedtuple(
+    'MatchRules', ('site_regex', 'require', 'allow_parts'), defaults=(None, None, True))
+DEFAULT_RULES = MatchRules()
+
+
+def episode_title_matches(title, matchtitle, rules=DEFAULT_RULES):
+    """True when a site title matches the episode pattern.
+
+    The single definition of "is this the episode we want". It is used twice
+    per search: by yt-dlp, wrapped in a match_filter so non-matching entries
+    are culled before they are fully extracted, and again by ytsearch() on
+    whatever survives.
+
+    ``require`` and the part check both read the *raw* title, deliberately.
+    A site regex often strips exactly the decoration those two rely on — the
+    series name lives in the suffix that regex.site is usually there to remove.
+    """
+    if not title:
+        # Nothing to verify against, so accept only when no rule constrains us.
+        return not matchtitle and rules.require is None and rules.allow_parts
+    if rules.require is not None and not rules.require.search(title):
+        return False
+    if not rules.allow_parts and has_part_marker(title):
+        return False
+    if not matchtitle:
+        return True
+    return re.search(
+        matchtitle, apply_site_regex(title, rules.site_regex), re.IGNORECASE) is not None
+
+
+def title_matches(entry, matchtitle, rules=DEFAULT_RULES):
+    """Re-apply the episode rules to a result entry ourselves.
+
+    yt-dlp is not a reliable filter here. When an entry fails the title check
+    in ``process_video_result`` it is returned anyway (just not downloaded),
+    and entries it can't confirm are a single video skip the check entirely.
+    Both land in ``result['entries']`` looking exactly like a match.
+
+    An entry with no title cannot be verified, so it is rejected: a missing
+    episode is recoverable, a wrong one silently isn't.
+    """
+    return episode_title_matches(entry.get('title'), matchtitle, rules)
+
+
+def make_title_filter(matchtitle, rules=DEFAULT_RULES, base_filter=None):
+    """Build the match_filter callable yt-dlp culls entries with.
+
+    This replaces yt-dlp's ``matchtitle`` option outright. Two reasons, either
+    sufficient on its own:
+
+    1. **A single null title kills the whole extraction.** ``_match_entry``
+       guards with ``if 'title' in info_dict`` — key present, value possibly
+       None — then hands it straight to ``re.search``. One private or deleted
+       video in a playlist raises TypeError, ``ignoreerrors`` swallows it, and
+       ``extract_info`` returns None for *every* entry. A 517-video playlist
+       with one private member returned nothing at all, for every episode, and
+       the log line ("No metadata returned") pointed at the playlist rather
+       than at the one bad video.
+    2. **It can't be combined with a site regex.** ``matchtitle`` tests the raw
+       title, which is precisely the title ``regex.site`` exists to rewrite, so
+       the entries the regex is meant to rescue get dropped before we see them.
+
+    A match_filter runs at the same points ``matchtitle`` does — including the
+    cheap pre-filter over unresolved playlist entries — so the early culling
+    that keeps a large channel affordable is unchanged.
+    """
+    def _filter(info_dict, incomplete=False):
+        if base_filter is not None:
+            rejected = base_filter(info_dict, incomplete)
+            if rejected is not None:
+                return rejected
+        title = info_dict.get('title')
+        if title is None:
+            # Unavailable video, or a pre-filter pass that hasn't resolved the
+            # title yet. Keep it: extraction will fail on its own if it's dead,
+            # and ytsearch rejects a null title before ever returning it.
+            return None
+        if not episode_title_matches(title, matchtitle, rules):
+            return '"{}" did not match the episode'.format(title)
+        return None
+    return _filter
+
+
+# Keys filterseries() and merge_service_config() actually read. Anything else
+# in a series or service block is silently ignored by the config loader, which
+# makes a typo — or an invented key — indistinguishable from a working one.
+INHERITABLE_KEYS = frozenset((
+    'username', 'password', 'cookies_file', 'format',
+    'playlistreverse', 'offset', 'subtitles', 'regex',
+    'strict_parts',
+))
+KNOWN_SERIES_KEYS = INHERITABLE_KEYS | frozenset(('title', 'url', 'service'))
+KNOWN_SERVICE_KEYS = INHERITABLE_KEYS | frozenset(('title', 'url'))
+KNOWN_REGEX_KEYS = frozenset(('sonarr', 'site', 'require'))
+
+
+def warn_unknown_keys(entries, known, kind):
+    """Log config keys that nothing reads, so typos don't fail silently."""
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get('title', '?')
+        unknown = sorted(set(entry) - known)
+        if unknown:
+            logger.warning(
+                '{} "{}" has unrecognised config key(s): {} - these are ignored. '
+                'Valid keys: {}'.format(
+                    kind, name, ', '.join(unknown), ', '.join(sorted(known))
+                )
+            )
+        regex = entry.get('regex')
+        if isinstance(regex, dict):
+            unknown_regex = sorted(set(regex) - KNOWN_REGEX_KEYS)
+            if unknown_regex:
+                logger.warning(
+                    '{} "{}" has unrecognised regex key(s): {} - these are ignored. '
+                    'Valid keys: sonarr, site'.format(kind, name, ', '.join(unknown_regex))
+                )
+
+
+def compile_site_regex(match, replace, series_title):
+    """Compile a series' regex.site pair, or None if it is unusable."""
+    if match is None:
+        return None
+    try:
+        return (re.compile(match), replace if replace is not None else '')
+    except re.error as e:
+        logger.warning(
+            'Series "{}" has an invalid regex.site match pattern ({}) - ignoring'.format(
+                series_title, e
+            )
+        )
+        return None
+
+
+def compile_require(pattern, series_title):
+    """Compile a series' regex.require pattern, or None if unusable.
+
+    A candidate title must contain this to be considered. It exists because an
+    episode title is often just a person's name, and a channel that carries
+    more than one show will have that person in another show too: Sonarr's
+    "Max Schaaf" matched "From Vert Legend to Chopper Icon: Max Schaaf | Let
+    It Kill You", a different series on the same channel. Requiring the show
+    name in the upload title scopes the search to the right series.
+    """
+    if pattern is None:
+        return None
+    try:
+        return re.compile(pattern, re.IGNORECASE)
+    except re.error as e:
+        logger.warning(
+            'Series "{}" has an invalid regex.require pattern ({}) - ignoring'.format(
+                series_title, e
+            )
+        )
+        return None
 
 
 class StreamHarvester(object):
@@ -136,12 +402,14 @@ class StreamHarvester(object):
         # Series Setup
         try:
             self.series = cfg["series"]
+            warn_unknown_keys(self.series, KNOWN_SERIES_KEYS, 'Series')
         except Exception as e:
             sys.exit(f"Error with series config.yml values: {e}")
 
         # Services setup - optional, provides base config for series to inherit from
         try:
             self.services = {}
+            warn_unknown_keys(cfg.get('services', []), KNOWN_SERVICE_KEYS, 'Service')
             for svc in cfg.get('services', []):
                 self.services[svc['title']] = svc
             if self.services:
@@ -320,10 +588,9 @@ class StreamHarvester(object):
         # Copy series config so we never mutate the original YAML-parsed dict
         merged = dict(wnt)
 
-        # Inheritable keys: series value wins if present, else fall back to service
-        inheritable_keys = ('username', 'password', 'cookies_file', 'format',
-                            'playlistreverse', 'offset', 'subtitles', 'regex')
-        for key in inheritable_keys:
+        # Inheritable keys: series value wins if present, else fall back to
+        # service. Shared with the config-key validation so the two can't drift.
+        for key in sorted(INHERITABLE_KEYS):
             if key not in merged and key in svc:
                 merged[key] = svc[key]
                 logger.debug('  Inherited {} from service "{}"'.format(key, service_name))
@@ -382,6 +649,7 @@ class StreamHarvester(object):
                     ser['playlistreverse'] = True
                     ser['subtitles_languages'] = ['en']
                     ser['subtitles_autogenerated'] = False
+                    ser['strict_parts'] = False
                     # Update values
                     if 'regex' in wnt:
                         regex = wnt['regex']
@@ -391,6 +659,23 @@ class StreamHarvester(object):
                         if 'site' in regex:
                             ser['site_regex_match'] = regex['site']['match']
                             ser['site_regex_replace'] = regex['site']['replace']
+                            # Compile once per series, not once per episode:
+                            # an invalid pattern should warn a single time.
+                            ser['site_regex'] = compile_site_regex(
+                                regex['site']['match'],
+                                regex['site'].get('replace'),
+                                ser['title'],
+                            )
+                        if 'require' in regex:
+                            ser['site_require'] = compile_require(
+                                regex['require'], ser['title'])
+                    if 'strict_parts' in wnt:
+                        # checkconfig() parses with yaml.BaseLoader, so every
+                        # scalar arrives as a string and a bare truth test would
+                        # read 'False' as True — enabling the flag for exactly
+                        # the users who wrote it to opt out. Coerce like debug
+                        # and exponential_backoff do.
+                        ser['strict_parts'] = wnt['strict_parts'] in ('true', 'True', True)
                     if 'offset' in wnt:
                         ser['offset'] = wnt['offset']
                     if 'cookies_file' in wnt:
@@ -519,13 +804,35 @@ class StreamHarvester(object):
         else:
             return ytdlopts
 
-    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None, username=None, password=None):
+    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None, username=None,
+                             password=None, rules=DEFAULT_RULES):
+        # Exclude YouTube Shorts. match_filter takes a callable, negation
+        # goes between the key and the operator, and the '?' keeps entries
+        # whose url is absent (merged formats have no top-level url).
+        shorts_filter = match_filter_func('url !*=? /shorts/')
         ytdlopts = {
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
-            'matchtitle': regextitle,
             'quiet': True,
-            'match-filter': '!is_short & !url =~ /shorts/',  # Exclude YouTube Shorts
+            # Search for the episode without resolving anything. Two effects,
+            # both large:
+            #
+            #  - Nested collections are not walked. A channel-search result
+            #    carries the channel's playlists alongside its videos, and
+            #    yt-dlp recurses into every one of them: on the VICE search
+            #    that is 13 playlists, the largest 1773 items, walked again
+            #    for *every* episode. is_single_video() already refuses to
+            #    return one, so resolving them only ever cost requests.
+            #  - Candidates are matched on their flat title instead of being
+            #    fully extracted first.
+            #
+            # Nothing downstream needs a resolved entry: a flat one carries
+            # the title to match on and the canonical watch url, and
+            # download() re-extracts that url anyway (see issue #114).
+            'extract_flat': 'in_playlist',
+            # The title check lives in the match_filter, never in yt-dlp's
+            # 'matchtitle' option. See make_title_filter for why.
+            'match_filter': make_title_filter(regextitle, rules, shorts_filter),
             'js_runtimes': JS_RUNTIMES,
         }
         if self.debug is True:
@@ -540,7 +847,7 @@ class StreamHarvester(object):
             logger.debug('yt-dlp opts configured for episode matching')
         return ytdlopts
 
-    def ytsearch(self, ydl_opts, playlist):
+    def ytsearch(self, ydl_opts, playlist, matchtitle=None, rules=DEFAULT_RULES):
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 result = ydl.extract_info(
@@ -556,32 +863,44 @@ class StreamHarvester(object):
             if result is None:
                 logger.error('No metadata returned for {}'.format(playlist))
                 return False, ''
-            video_url = None
-            # Prefer webpage_url over url: yt-dlp's YouTube extractor only sets
-            # url when format selection picks a single non-merge format. HLS
-            # videos (most modern YouTube uploads) trigger ffmpeg audio+video
-            # merge — the "merged format" dict (YoutubeDL._merge) has
-            # requested_formats but no top-level url, so info_dict.update gives
-            # us an entry with .get('url') == None even though extraction
-            # succeeded. webpage_url is always set by the YouTube extractor
-            # directly; the .get('url') fallback covers other extractors that
-            # only populate url. See issue #114.
-            if 'entries' in result and len(result['entries']) > 0:
-                for entry in result['entries']:
-                    if entry is None:
-                        continue
-                    video_url = entry.get('webpage_url') or entry.get('url')
-                    if video_url:
-                        break
-            else:
-                video_url = result.get('webpage_url') or result.get('url')
-            if playlist == video_url:
-                return False, ''
-            if video_url is None:
-                logger.error('No video_url')
-                return False, ''
-            else:
+            # The caller passes the same pattern object it built the opts from,
+            # so our check can't drift from the one yt-dlp applied. The fallback
+            # covers callers that only set it in the opts dict.
+            if matchtitle is None:
+                matchtitle = ydl_opts.get('matchtitle')
+            entries = result.get('entries')
+            candidates = list(entries) if entries else [result]
+            for entry in candidates:
+                if entry is None:
+                    continue
+                if not is_single_video(entry):
+                    logger.debug('  Skipping collection result: {}'.format(
+                        entry.get('title') or entry.get('url')
+                    ))
+                    continue
+                if not title_matches(entry, matchtitle, rules):
+                    logger.debug('  Skipping title mismatch: {}'.format(entry.get('title')))
+                    continue
+                # Prefer webpage_url over url: yt-dlp's YouTube extractor only
+                # sets url when format selection picks a single non-merge
+                # format. HLS videos (most modern YouTube uploads) trigger
+                # ffmpeg audio+video merge — the "merged format" dict
+                # (YoutubeDL._merge) has requested_formats but no top-level
+                # url, so info_dict.update gives us an entry with
+                # .get('url') == None even though extraction succeeded.
+                # webpage_url is always set by the YouTube extractor directly;
+                # the .get('url') fallback covers other extractors that only
+                # populate url. See issue #114. Since the search runs flat
+                # (extract_flat), that fallback is now the normal path: a flat
+                # entry has no webpage_url, and its url is the canonical watch
+                # url rather than a media stream.
+                video_url = entry.get('webpage_url') or entry.get('url')
+                if not video_url or video_url == playlist:
+                    continue
+                logger.debug('  Matched "{}"'.format(entry.get('title')))
                 return True, video_url
+            logger.debug('  No single video matched in {} result(s)'.format(len(candidates)))
+            return False, ''
 
     def download(self, series, episodes):
         if len(series) != 0:
@@ -600,8 +919,25 @@ class StreamHarvester(object):
                             username = ser['username']
                         if 'password' in ser:
                             password = ser['password']
-                        ydleps = self.ytdl_eps_search_opts(upperescape(eps['title']), ser['playlistreverse'], cookies, username, password)
-                        found, dlurl = self.ytsearch(ydleps, url)
+                        # Build the pattern once and hand the same value to the
+                        # search opts and to the verification inside ytsearch.
+                        matchtitle = upperescape(eps['title'])
+                        # Opt-in via strict_parts. When it is off (the default)
+                        # a "Part N" upload may satisfy an episode Sonarr models
+                        # as whole — taking part 1 flips hasFile and the rest is
+                        # never fetched, so the episode looks complete and is a
+                        # fragment. With it on, only an episode whose own title
+                        # names a part may match a part. Off by default because
+                        # turning it on makes affected episodes show as missing
+                        # until they are split in Sonarr.
+                        rules = MatchRules(
+                            site_regex=ser.get('site_regex'),
+                            require=ser.get('site_require'),
+                            allow_parts=parts_allowed(
+                                eps['title'], ser.get('strict_parts')),
+                        )
+                        ydleps = self.ytdl_eps_search_opts(matchtitle, ser['playlistreverse'], cookies, username, password, rules)
+                        found, dlurl = self.ytsearch(ydleps, url, matchtitle, rules)
                         if found:
                             logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
                             season = self.format_season(eps['seasonNumber'])
@@ -610,13 +946,21 @@ class StreamHarvester(object):
                                 'format': self.ytdl_format,
                                 'quiet': True,
                                 "merge_output_format": self.ytdl_merge_output_format,
+                                # Titles are interpolated into the *template*,
+                                # so yt-dlp reads any separator in them as a
+                                # real one and silently nests the download in a
+                                # directory. "James Kelch (Part 1/2)" landed in
+                                # ".../James Kelch (Part 1/2) WEBDL.mkv" — a
+                                # folder and a file. Only multi-part episodes
+                                # carry a slash, so this went unnoticed until
+                                # they were monitored.
                                 'outtmpl': '{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s'.format(
                                     self.root_folder,
                                     ser['path'],
                                     season,
-                                    ser['title'],
+                                    path_safe(ser['title']),
                                     episode,
-                                    eps['title']
+                                    path_safe(eps['title'])
                                 ),
                                 'progress_hooks': [ytdl_hooks],
                                 'noplaylist': True,
@@ -682,8 +1026,15 @@ class StreamHarvester(object):
                                 if self.download_delay > 0:
                                     logger.debug("      Waiting {} seconds before next download".format(self.download_delay))
                                     time.sleep(self.download_delay)
-                            except Exception as e:
-                                error_msg = str(e)
+                            # NOT "as e": that is the enumerate index of the
+                            # episode, used by every log line in this block.
+                            # Shadowing it made "e + 1" a TypeError, which
+                            # escaped main() and restart-looped the container
+                            # the moment any download failed — and because the
+                            # rate-limit branch logs before it sleeps, the
+                            # exponential backoff below could never run.
+                            except Exception as err:
+                                error_msg = str(err)
                                 # Check if this is a rate limit error
                                 if 'rate-limited' in error_msg.lower() or 'rate limit' in error_msg.lower() or 'try again later' in error_msg.lower():
                                     self.rate_limit_count += 1
