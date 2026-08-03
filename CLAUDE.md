@@ -227,6 +227,157 @@ non-obvious behaviors bit us in issue #114:
 If you ever feel tempted to "simplify" back to `.get('url')`, don't —
 re-read #114 first.
 
+### `matchtitle` is not a filter you can rely on
+
+**`matchtitle` does not remove every non-matching entry from
+`result['entries']`.** Two paths in `YoutubeDL` leave one in:
+
+- `_match_entry` returns early — before the title check — for any entry
+  whose `_type` is `url`/`url_transparent` and whose `ie_key` extractor
+  says `is_single_video()` is False. Every playlist in the results is
+  therefore unfiltered. A channel-search url
+  (`https://www.youtube.com/@CHANNEL/search?query=...`) interleaves
+  playlists with videos, and the VICE search had one at index 0.
+- When a *video* fails the title check in `process_video_result`,
+  yt-dlp `return`s the info dict rather than dropping it. It only
+  declines to download.
+
+Both come back looking exactly like a match. Handing one to
+`download()` is worse than finding nothing: the outtmpl is fixed per
+episode and `nooverwrites` is set, so yt-dlp writes the collection's
+first item into the episode's filename and every episode in the series
+becomes the same video. `noplaylist` does not help — it only strips
+`list=` from a `watch?v=...&list=...` url, not a bare
+`playlist?list=...`.
+
+So `ytsearch()` does its own two checks on each entry — `is_single_video()`
+and `title_matches()` — before accepting it. `download()` builds the pattern
+once and hands the same value to both `ytdl_eps_search_opts()` and
+`ytsearch()`, so the check yt-dlp applies and the one we re-apply can't drift.
+
+### The search runs flat, and must stay that way
+
+`ytdl_eps_search_opts()` sets `extract_flat: 'in_playlist'`. Without it, a
+channel-search url is brutally expensive in a way that doesn't show up in the
+code: the result carries the channel's **playlists** alongside its videos, and
+yt-dlp recurses into every one of them. On the VICE search that's 13 playlists,
+the largest 1773 items, walked again for *every episode*. With ~100 monitored
+episodes and `scan_interval` in minutes, that is enough to get the session
+rate-limited by YouTube ("This content isn't available, try again later"),
+which then looks like dead videos or bad cookies.
+
+`is_single_video()` refuses to return a playlist regardless, so resolving them
+never bought anything. Flat is also sufficient: an entry needs only a title to
+match on and a url to download, and `download()` re-extracts that url anyway
+(#114). A flat entry has no `webpage_url`, so the `or entry.get('url')`
+fallback is the normal path now, not an edge case — and that url is the
+canonical `watch?v=` page, not a media stream.
+
+`'in_playlist'`, not `True`: the configured url itself must still resolve into
+a list of entries.
+
+### Never set `matchtitle` — one null title kills the whole extraction
+
+`_match_entry` guards the title check with `if 'title' in info_dict`: the key
+being *present* is not the value being a string. A private or deleted playlist
+member has `title: None`, which goes straight into `re.search` and raises
+`TypeError: expected string or bytes-like object, got 'NoneType'`. That
+propagates out of `extract_info`, `ignoreerrors` swallows it, and the result is
+`None` for the **entire playlist** — every episode reports "No metadata
+returned", pointing at the playlist rather than at the one bad video.
+
+A 517-video Hot Ones playlist with a single private member (`PtR_Wzf94C4`)
+returned nothing at all, for all 31 missing episodes, and looked exactly like a
+dead playlist or a cookie problem. Flat-extracting the same url by hand worked
+fine, which made it look like throttling. It wasn't.
+
+So `ytdl_eps_search_opts()` never sets `matchtitle`. The title check always
+lives in the `make_title_filter` callable, which treats a null title as "keep,
+decide later" — extraction fails on its own if the video is dead, and
+`ytsearch()` rejects a null title before returning it.
+
+### `regex.site` can't coexist with `matchtitle` either
+
+`regex.site` rewrites the *site's* title before comparison — that's the whole
+point of it — but yt-dlp tests `matchtitle` against the **raw** title, so it
+would drop exactly the entries the regex exists to rescue, before `ytsearch()`
+ever sees them.
+
+So when a series configures `regex.site`, `ytdl_eps_search_opts()` deletes
+`matchtitle` and moves the check into the `match_filter` callable
+(`make_title_filter`), composing it with the existing shorts filter rather than
+replacing it. `match_filter` runs at the same points `matchtitle` does —
+including the cheap pre-filter over unresolved playlist entries — so early
+culling is preserved and a channel with hundreds of videos doesn't get fully
+extracted. Series *without* a site regex keep plain `matchtitle`, so the common
+path is untouched.
+
+`episode_title_matches()` is the single definition of "is this the episode",
+used by both the filter and the post-hoc verification. Keep it that way: if the
+filter and the verifier disagree, every search returns nothing.
+
+`regex.sonarr` is unrelated and goes the other direction — it rewrites the
+*Sonarr* episode title in `getseriesepisodes()` before the pattern is built.
+
+### A match can be real and still be the wrong video
+
+Two rules in `MatchRules` exist because "the pattern matched" is not the same
+as "this is the episode". Both are checked against the **raw** title, before
+any `regex.site` rewrite — a site regex usually strips exactly the suffix they
+depend on.
+
+- **`regex.require`** scopes a series to one show on a shared channel. Episode
+  titles are often just a person's name, and a channel carrying several shows
+  will have that person in more than one. "Max Schaaf" matched *Let It Kill
+  You*, not *Epicly Later'd*; so did "Arto Saari", which had a correct
+  candidate available but listed second.
+- **Part refusal** stops one upload standing in for a whole episode. When the
+  Sonarr title names no part, candidates that do are rejected. Otherwise part
+  1 downloads, `hasFile` flips, and the other parts are never fetched — the
+  episode looks complete and is 20% of itself. `PART_RE` is deliberately broad:
+  a false positive costs one episode staying missing, a false negative files a
+  fragment as the whole thing.
+
+  **This one is opt-in, via `strict_parts`, and defaults to off.** Not because
+  the permissive behaviour is defensible — it files a fragment as a whole
+  episode — but because 17 of 53 measured episodes stop matching when it is on.
+  Silently correcting that on upgrade reads to a user as a third of their
+  library going missing, so the trade was made deliberately: `parts_allowed()`
+  returns True unless the series opted in, and the default may flip in a later
+  major release. Don't "fix" the default without that being the intended
+  release-note-worthy change.
+
+  `strict_parts` arrives from `checkconfig()`, which parses with
+  `yaml.BaseLoader` — **every scalar is a string**, so `strict_parts: False` is
+  the truthy `'False'`. It is coerced with `in ('true', 'True', True)`, the same
+  shape as `debug` and `exponential_backoff`. A bare truth test here enables the
+  flag for exactly the users who wrote it to opt out. Accepting the native `True`
+  as well is what #124 needed for `subtitles_autogenerated` — same string/bool
+  confusion, opposite direction (a real boolean reaching string-only handling).
+  Both directions have to work, so any new boolean config key needs this exact
+  coercion.
+
+Both rules are also installed in the `match_filter`, not just in `ytsearch`'s
+verification, so wrong-series and part uploads are culled before extraction
+rather than after.
+
+### `upperescape` builds that pattern, and it is deliberately loose
+
+Punctuation is made optional to absorb human inconsistency between the
+Sonarr title and the upload title. Keep the optionality on *punctuation
+only*. The brackets around "(Part 3)" are optional; the words inside are
+not. Making the parenthetical itself optional collapses every part of a
+multi-part episode onto one regex, and they all resolve to the same video.
+Literal numbers are fenced with `(?<![0-9])`/`(?![0-9])` so "Part 1" can't
+claim "Part 10", while "(Part 1/5)" and "1 of 7" still match "(Part 1)".
+
+Two known gaps, asserted in `test/test_upperescape_parts.py` so a fix
+shows up as a test change: the optional-apostrophe class is ASCII-only
+(a curly apostrophe on the *site's* side won't match, since
+`_normalize_quotes` only touches the pattern), and the `\ AND\ ` →
+`(AND|&)` alternation is dead code (spaces are rewritten to `[\ ]*` on
+the preceding line, so the literal it looks for is already gone).
+
 ## Adding new architectures
 
 If a new platform is added to `main.yaml` / `cron.yaml`, also add it to

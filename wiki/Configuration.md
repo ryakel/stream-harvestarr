@@ -188,6 +188,7 @@ services:
 | `offset` | object | No | Default time offset for series using this service |
 | `subtitles` | object | No | Default subtitle config for series using this service |
 | `regex` | object | No | Default regex matching for series using this service |
+| `strict_parts` | boolean | No | Default multi-part handling for series using this service |
 
 Series-level settings always override service-level settings. See [Services](Advanced-Features#services) in the Advanced Features guide for full details and examples.
 
@@ -283,6 +284,8 @@ series:
 | `regex.sonarr.replace` | string | Optional | Replacement string for matched pattern |
 | `regex.site.match` | string | Optional | Regex pattern to match in site title |
 | `regex.site.replace` | string | Optional | Replacement string for matched pattern |
+| `regex.require` | string | Optional | A site title must contain this pattern to be considered. Scopes a series when one channel carries several shows |
+| `strict_parts` | boolean | False | When `True`, a `(Part N)` upload only satisfies an episode whose own title names a part |
 
 ## Example Complete Configuration
 
