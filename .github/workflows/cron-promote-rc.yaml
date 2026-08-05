@@ -72,6 +72,29 @@ jobs:
           echo "Resolved ${REPO}:rc -> ${DIGEST}"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
+      - name: Refuse to promote a stale :rc
+        # A failed Wednesday build leaves :rc pointing at *last* week's image,
+        # which this workflow would otherwise happily re-promote to :latest --
+        # silently shipping a stale artifact while a newer release tag claims
+        # otherwise. If :rc already equals :latest there is nothing new to
+        # promote, and the right response is to fix Wednesday, not to proceed.
+        env:
+          REPO: ghcr.io/ryakel/stream-harvestarr
+          RC_DIGEST: ${{ steps.digest.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if ! LATEST_DIGEST=$(regctl image digest "${REPO}:latest" 2>/dev/null); then
+            echo "::notice::no :latest yet -- first promotion, nothing to compare."
+            exit 0
+          fi
+          if [ "${RC_DIGEST}" = "${LATEST_DIGEST}" ]; then
+            echo "::error:::rc and :latest are already the same digest (${RC_DIGEST})." >&2
+            echo "::error::Nothing new to promote. Wednesday's RC build likely failed --" >&2
+            echo "::error::re-run it, confirm :rc moved, then re-run this workflow." >&2
+            exit 1
+          fi
+          echo ":rc (${RC_DIGEST}) differs from :latest (${LATEST_DIGEST}) -- promoting."
+
       - name: Promote :rc to :latest (GHCR + Docker Hub)
         env:
           DIGEST: ${{ steps.digest.outputs.digest }}

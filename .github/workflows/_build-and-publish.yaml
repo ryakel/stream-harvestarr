@@ -55,7 +55,7 @@ jobs:
     name: Build & push to GHCR
     runs-on: ubuntu-latest
     outputs:
-      digest: ${{ steps.build.outputs.digest }}
+      digest: ${{ steps.build.outputs.digest || steps.build_retry.outputs.digest }}
       image: ${{ steps.vars.outputs.image }}
     steps:
       - name: Checkout
@@ -85,8 +85,15 @@ jobs:
         with:
           images: ${{ steps.vars.outputs.image }}
 
+      # The build itself is reliable; the *push* is not. GHCR answers with
+      # HTTP 403 "You have exceeded a secondary rate limit" under load, which
+      # fails the job after every arch has already been built and every layer
+      # exported. Retried once because it is transient and because by the
+      # second attempt the build is fully cached, so the retry re-attempts
+      # little more than the push itself.
       - name: Build and push to GHCR
         id: build
+        continue-on-error: true
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -103,6 +110,50 @@ jobs:
           # not subject to the per-branch 10GB GHA cache eviction policy.
           cache-from: type=registry,ref=${{ steps.vars.outputs.image }}/buildcache
           cache-to: type=registry,ref=${{ steps.vars.outputs.image }}/buildcache,mode=max
+
+      - name: Back off before retry
+        if: steps.build.outcome == 'failure'
+        run: |
+          echo "::warning::GHCR push failed; waiting 90s before one retry."
+          sleep 90
+
+      - name: Build and push to GHCR (retry)
+        id: build_retry
+        if: steps.build.outcome == 'failure'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          sbom: true
+          provenance: mode=max
+          platforms: ${{ inputs.platforms }}
+          tags: |
+            ${{ steps.vars.outputs.image }}:${{ inputs.docker_tag }}
+            ${{ inputs.version_tag != '' && format('{0}:{1}', steps.vars.outputs.image, inputs.version_tag) || '' }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=registry,ref=${{ steps.vars.outputs.image }}/buildcache
+          cache-to: type=registry,ref=${{ steps.vars.outputs.image }}/buildcache,mode=max
+
+      # continue-on-error above means the job would otherwise report success
+      # when both attempts failed. Fail loudly instead, and guard against a
+      # push that "succeeded" without returning a digest -- downstream jobs
+      # reference the image by digest, so an empty one silently breaks them.
+      - name: Verify the image was pushed
+        env:
+          DIGEST: ${{ steps.build.outputs.digest || steps.build_retry.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.build.outcome }}" = "failure" ] \
+             && [ "${{ steps.build_retry.outcome }}" != "success" ]; then
+            echo "::error::GHCR push failed on both attempts. Nothing was published." >&2
+            exit 1
+          fi
+          if [ -z "${DIGEST}" ]; then
+            echo "::error::Push reported success but produced no digest." >&2
+            exit 1
+          fi
+          echo "Pushed digest: ${DIGEST}"
 
   smoke-test:
     name: Smoke test pushed digest
