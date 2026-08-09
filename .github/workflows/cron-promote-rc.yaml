@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Checkout
         # Required for peter-evans/dockerhub-description (reads ./README.md).
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Promotion gate
         # Placeholder for the dead-man's-switch (Item B). Once the

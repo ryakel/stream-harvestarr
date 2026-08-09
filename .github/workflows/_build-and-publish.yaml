@@ -59,7 +59,7 @@ jobs:
       image: ${{ steps.vars.outputs.image }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Compute lowercase image name
         id: vars
@@ -198,7 +198,7 @@ jobs:
       # for the dev/non-readme path since regctl doesn't need the source.
       - name: Checkout
         if: ${{ inputs.update_dockerhub_description }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Login to GHCR
         uses: docker/login-action@v4
