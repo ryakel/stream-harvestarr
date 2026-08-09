@@ -9,6 +9,15 @@ name: Cron - Weekly RC Build
 # retags by digest. If Thursday's promotion is blocked or fails, the
 # release still exists and users can pull :rc or :vX.Y.Z directly.
 #
+# That reasoning only covers Thursday failing. It did not cover *this*
+# workflow failing after the tag was already cut, which is what happened on
+# 2026-08-05: the version was bumped and the GitHub release published, then
+# the GHCR push hit a secondary rate limit. v1.10.1 was left advertised on
+# the releases page with no image behind it anywhere, and the smoke test --
+# the thing that would have caught it -- was skipped because it needs the
+# build. So the order is now: compute the version, build, smoke-test, and
+# only then tag and release. Nothing is announced before it exists.
+#
 # Note: GitHub `schedule:` triggers fire only against the default branch
 # (main), so this workflow always runs against main's HEAD. There is no
 # "cron on dev" -- by design.
@@ -24,11 +33,12 @@ permissions:
 
 jobs:
   prepare:
-    name: Prepare RC release metadata
+    name: Compute RC version
     runs-on: ubuntu-latest
     outputs:
       docker_tag: ${{ steps.tag.outputs.tag }}
       version_tag: ${{ steps.tag_version.outputs.new_tag }}
+      changelog: ${{ steps.tag_version.outputs.changelog }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -37,7 +47,7 @@ jobs:
         id: tag
         run: echo "tag=rc" >> "$GITHUB_OUTPUT"
 
-      - name: Bump version and push tag
+      - name: Compute next version
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
         with:
@@ -46,26 +56,10 @@ jobs:
           # Bump every weekly run -- the rebake itself is the release.
           # See cron-restore-weekly-bump (#104) for rationale.
           default_bump: patch
-
-      - name: Create a GitHub release
-        if: steps.tag_version.outputs.new_tag != ''
-        uses: ncipollo/release-action@v1.21.0
-        with:
-          tag: ${{ steps.tag_version.outputs.new_tag }}
-          name: Release ${{ steps.tag_version.outputs.new_tag }}
-          body: |
-            Weekly maintenance rebake. No source changes since last release.
-
-            Picks up whatever's current upstream:
-            - `python:3.14-alpine` base image (security patches)
-            - Alpine packages (ffmpeg, curl, deno, nodejs)
-            - Python deps satisfying current `requirements.txt` constraints
-              (notably yt-dlp, which ships frequently to track YouTube changes)
-
-            Currently published as `:rc` and `:${{ steps.tag_version.outputs.new_tag }}`.
-            Will be promoted to `:latest` on Thursday after the 24h soak window.
-
-            ${{ steps.tag_version.outputs.changelog }}
+          # Compute only. The image needs the version to tag itself with, but
+          # the git tag must not exist until the image does -- see the header.
+          # The `release` job below pushes it once the build has succeeded.
+          dry_run: true
 
   build-and-publish:
     name: Build and publish RC
@@ -81,3 +75,54 @@ jobs:
     secrets:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+
+  release:
+    name: Tag and release
+    # Only after the image is built, pushed, smoke-tested, and replicated.
+    # `needs` on the reusable workflow gates on all of its jobs, so a failure
+    # anywhere in it leaves no tag and no release behind.
+    needs: [prepare, build-and-publish]
+    if: needs.prepare.outputs.version_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Push the version tag
+        env:
+          VERSION: ${{ needs.prepare.outputs.version_tag }}
+        run: |
+          set -euo pipefail
+          # Pushes the exact version `prepare` computed and the image was
+          # tagged with, rather than recomputing and risking a mismatch.
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            echo "::notice::${VERSION} already exists; leaving it alone."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${VERSION}" -m "Release ${VERSION}"
+          git push origin "${VERSION}"
+
+      - name: Create a GitHub release
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          tag: ${{ needs.prepare.outputs.version_tag }}
+          name: Release ${{ needs.prepare.outputs.version_tag }}
+          # Idempotent, so re-running a partially failed run doesn't error.
+          allowUpdates: true
+          body: |
+            Weekly maintenance rebake. No source changes since last release.
+
+            Picks up whatever's current upstream:
+            - `python:3.14-alpine` base image (security patches)
+            - Alpine packages (ffmpeg, curl, deno, nodejs)
+            - Python deps satisfying current `requirements.txt` constraints
+              (notably yt-dlp, which ships frequently to track YouTube changes)
+
+            Published as `:rc` and `:${{ needs.prepare.outputs.version_tag }}`.
+            Will be promoted to `:latest` on Thursday after the 24h soak window.
+
+            ${{ needs.prepare.outputs.changelog }}

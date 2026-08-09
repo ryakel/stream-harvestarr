@@ -1,5 +1,15 @@
 name: Docker Builder
 
+# Tag/release bookkeeping runs *after* the build, not before it. Publishing a
+# version before the image exists produced an orphaned v1.10.1 on the weekly
+# RC path (2026-08-05): the tag was pushed and the release announced, then the
+# GHCR push hit a secondary rate limit, and the smoke test that would have
+# caught it was skipped because it depends on the build. #161 fixed that in
+# cron-build-rc.yaml; this is the same defect in the path that publishes
+# `latest`, where it had simply not been hit yet.
+#
+# So: compute the version, build, smoke-test, and only then tag and release.
+
 on:
   workflow_dispatch:
   push:
@@ -27,6 +37,7 @@ jobs:
     outputs:
       docker_tag: ${{ steps.tag.outputs.tag }}
       version_tag: ${{ steps.tag_version.outputs.new_tag }}
+      changelog: ${{ steps.tag_version.outputs.changelog }}
       update_dockerhub_description: ${{ steps.flags.outputs.is_main }}
     steps:
       - name: Checkout
@@ -59,21 +70,17 @@ jobs:
             echo "is_main=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Bump version and push tag
+      - name: Compute next version
         if: github.ref == 'refs/heads/main'
         id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           custom_release_rules: major:major,breaking:major,minor:minor,patch:patch,fix:patch
-
-      - name: Create a GitHub release
-        if: github.ref == 'refs/heads/main'
-        uses: ncipollo/release-action@v1.21.0
-        with:
-          tag: ${{ steps.tag_version.outputs.new_tag }}
-          name: Release ${{ steps.tag_version.outputs.new_tag }}
-          body: ${{ steps.tag_version.outputs.changelog }}
+          # Compute only. The image needs the version to tag itself with, but
+          # the git tag must not exist until the image does -- see the header.
+          # The `release` job below pushes it once the build has succeeded.
+          dry_run: true
 
   build-and-publish:
     name: Build and publish
@@ -87,3 +94,45 @@ jobs:
     secrets:
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+
+  release:
+    name: Tag and release
+    # Only after the image is built, pushed, smoke-tested, and replicated.
+    # `needs` on the reusable workflow gates on all of its jobs, so a failure
+    # anywhere in it leaves no tag and no release behind.
+    #
+    # Restricted to main: this workflow also runs for `development` (:dev) and
+    # for tag pushes, neither of which cuts a release.
+    needs: [prepare, build-and-publish]
+    if: github.ref == 'refs/heads/main' && needs.prepare.outputs.version_tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Push the version tag
+        env:
+          VERSION: ${{ needs.prepare.outputs.version_tag }}
+        run: |
+          set -euo pipefail
+          # Pushes the exact version `prepare` computed and the image was
+          # tagged with, rather than recomputing and risking a mismatch.
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null; then
+            echo "::notice::${VERSION} already exists; leaving it alone."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${VERSION}" -m "Release ${VERSION}"
+          git push origin "${VERSION}"
+
+      - name: Create a GitHub release
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          tag: ${{ needs.prepare.outputs.version_tag }}
+          name: Release ${{ needs.prepare.outputs.version_tag }}
+          # Idempotent, so re-running a partially failed run doesn't error.
+          allowUpdates: true
+          body: ${{ needs.prepare.outputs.changelog }}
