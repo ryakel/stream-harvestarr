@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.7
+# syntax=docker/dockerfile:1.26
 FROM python:3.14-alpine
 LABEL maintainer="github.com/ryakel"
 LABEL org.opencontainers.image.source="https://github.com/ryakel/stream-harvestarr"
