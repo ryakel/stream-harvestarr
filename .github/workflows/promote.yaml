@@ -1,50 +1,54 @@
-name: Promote development to main
+name: Promotion preflight
 
-# Fast-forwards `main` to `development` instead of merging.
+# Checks that `development` is safe to promote to `main`, and prints the
+# command to do it. It does NOT push.
 #
-# Why not the PR merge button: all three GitHub merge strategies (merge
-# commit / squash / rebase) create a NEW commit on main that never existed
-# on development. main then sits permanently one commit ahead, which is
-# what forced a back-merge after every release. It also means `latest` is
-# built from a SHA that was never built as `:dev` -- so the image shipped
-# to users is not literally the artifact that was tested.
+# Why it does not push:
 #
-# A fast-forward moves the main ref to the exact commit whose `:dev` image
-# was validated. Same SHA, same build inputs, provably the tested artifact,
-# and the branches can never diverge.
+# This workflow used to fast-forward `main` itself. That never once worked.
+# Its first real run (2026-09-19, run_number 1, months after it was written)
+# died on:
 #
-# Prerequisites:
-#   1. Nothing may commit directly to main. Dependabot and Renovate are both
-#      pinned to `development` for this reason. A single direct-to-main
-#      commit permanently breaks fast-forwardability and needs a one-off
-#      back-merge to recover.
-#   2. Branch protection on main must let this workflow push. Settings ->
-#      Branches -> main -> "Allow specified actors to bypass required pull
-#      requests", and add the github-actions bot.
+#     remote: error: GH006: Protected branch update failed for refs/heads/main.
+#     remote: - Changes must be made through a pull request.
+#
+# The header used to say the fix was to add the github-actions bot to
+# "Allow specified actors to bypass required pull requests". That setting
+# exists, but `github-actions[bot]` cannot be put in it: the bypass actor
+# picker -- classic branch protection and rulesets alike -- offers roles,
+# teams, users, and *installed GitHub Apps*, and the built-in Actions token
+# is none of those. `GITHUB_TOKEN` cannot be granted bypass on a protected
+# branch under either mechanism. The prerequisite was unachievable, so the
+# workflow was dead on arrival and the merge button got used instead --
+# which is exactly how `main` and `development` diverged in August 2026 and
+# needed a one-off recovery sync (SH-1).
+#
+# Swapping in a PAT or GitHub App token would work, but it buys one click at
+# the price of a secret to rotate plus a live trap: the old "Trigger release
+# build" step dispatched Docker Builder explicitly *because* a GITHUB_TOKEN
+# push does not trigger workflows. A PAT push DOES trigger them, so keeping
+# both would start two concurrent Docker Builder runs on one commit, each
+# bumping the version and cutting a release -- the same defect as the
+# orphaned v1.10.1 described in main.yaml's header.
+#
+# So: the human runs the push. That also removes the dispatch entirely,
+# because a push made by a person triggers Docker Builder on `main` all by
+# itself (verified 2026-09-19: run #217, event: push, produced v1.10.12).
+#
+# What is kept is the part that had real value and would have caught the
+# August divergence at the moment it mattered: the ancestry guard.
 
 on:
   workflow_dispatch:
-    inputs:
-      confirm:
-        description: 'Type "promote" to confirm publishing latest to users'
-        required: true
-        type: string
 
 permissions:
-  contents: write   # fast-forward push to main
-  actions: write    # dispatch the release workflow (see below)
+  contents: read
 
 jobs:
-  promote:
-    name: Fast-forward main to development
+  preflight:
+    name: Check main can fast-forward to development
     runs-on: ubuntu-latest
     steps:
-      - name: Check confirmation
-        if: inputs.confirm != 'promote'
-        run: |
-          echo "::error::Confirmation failed. Type 'promote' to publish." >&2
-          exit 1
-
       - name: Checkout
         uses: actions/checkout@v7
         with:
@@ -78,41 +82,36 @@ jobs:
             exit 1
           fi
 
-          echo "Promoting these commits to main:"
+          echo "Commits that would be promoted to main:"
           git log --oneline "${MAIN_SHA}..${DEV_SHA}"
           echo "dev_sha=${DEV_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Fast-forward main
-        run: |
-          set -euo pipefail
-          # Refuse to clobber if main moved since the ancestry check above.
-          git push origin \
-            --force-with-lease="main:$(git rev-parse origin/main)" \
-            "${{ steps.check.outputs.dev_sha }}:refs/heads/main"
-
-      - name: Trigger release build
+      - name: Print the promotion command
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEV_SHA: ${{ steps.check.outputs.dev_sha }}
         run: |
           set -euo pipefail
-          # A push made with GITHUB_TOKEN does NOT trigger other workflows,
-          # so the push above will not start "Docker Builder" on its own and
-          # the release would silently never publish. workflow_dispatch and
-          # repository_dispatch are the documented exceptions to that rule,
-          # so dispatch it explicitly. Running main.yaml with ref=main
-          # reproduces exactly what a push to main would have done:
-          # docker_tag=latest, version bump, and GitHub release.
-          gh workflow run main.yaml --ref main
-          echo "Dispatched Docker Builder on main -- latest + version bump + release."
-
-      - name: Summary
-        run: |
           {
-            echo "### Promoted to main"
+            echo "### Ready to promote"
             echo ""
-            echo "\`main\` fast-forwarded to \`${{ steps.check.outputs.dev_sha }}\`."
+            echo "\`main\` can fast-forward to \`${DEV_SHA}\` cleanly."
             echo ""
-            echo "This is the same commit that was built and tested as \`:dev\`."
-            echo "Docker Builder was dispatched to publish \`latest\`, bump the"
-            echo "semver tag, and cut the GitHub release."
+            echo "Run this locally to publish the release:"
+            echo ""
+            echo '```bash'
+            echo "git fetch origin main development"
+            echo "git push origin ${DEV_SHA}:refs/heads/main"
+            echo '```'
+            echo ""
+            echo "No \`--force\` is needed or wanted: this is a fast-forward, so"
+            echo "git refuses the push if anything landed on \`main\` in the"
+            echo "meantime -- which is the safety property the old force-with-lease"
+            echo "was there to provide."
+            echo ""
+            echo "The push triggers Docker Builder on \`main\` by itself. It"
+            echo "publishes \`latest\`, bumps the semver tag, and cuts the GitHub"
+            echo "release, from the exact commit that was built and tested as"
+            echo "\`:dev\`. Do not dispatch Docker Builder as well -- that would"
+            echo "build and release the same commit twice."
           } >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_STEP_SUMMARY"
