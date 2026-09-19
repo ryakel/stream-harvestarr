@@ -41,10 +41,29 @@ All work follows: **feature branch → `development` → `main`**.
   publishes images tagged `dev` from this branch. `development` is the
   staging gate: the owner tests the `:dev` image against a real Sonarr
   before anything reaches users.
-- Promote to production by running the **Promote development to main**
-  workflow (`.github/workflows/promote.yaml`, `workflow_dispatch`). It
-  fast-forwards `main` to `development` and then dispatches Docker Builder
-  to publish `latest`, bump the semver tag, and cut the GitHub release.
+- Promote to production in two steps. First run the **Promotion preflight**
+  workflow (`.github/workflows/promote.yaml`, `workflow_dispatch`) to
+  confirm `main` can fast-forward to `development`; it prints the exact
+  command. Then run that command locally:
+
+  ```bash
+  git fetch origin main development
+  git push origin <development-sha>:refs/heads/main
+  ```
+
+  No `--force` — a fast-forward needs none, and git refusing the push is
+  the safety property. The push triggers Docker Builder on `main` by
+  itself, publishing `latest`, bumping the semver tag, and cutting the
+  GitHub release. Do not also dispatch Docker Builder; that builds and
+  releases the same commit twice.
+
+  **The preflight does not push, and this is deliberate.** A workflow
+  cannot push to a protected `main`: `GITHUB_TOKEN` cannot be granted
+  bypass under classic branch protection or rulesets, because the bypass
+  actor picker only offers roles, teams, users and installed GitHub Apps,
+  and `github-actions[bot]` is none of those. An earlier version of the
+  workflow tried anyway and failed on `GH006` the first time it was ever
+  run. See SH-3 and the header of `promote.yaml`.
 
 ### Why promotion is a fast-forward, not a merge
 
@@ -65,8 +84,14 @@ validated — same SHA, same build inputs, and the branches cannot diverge.
 to `development` for that reason; their updates are changes like any other
 and must clear the staging gate. A single direct-to-main commit breaks
 fast-forwardability permanently and requires a one-off `main → development`
-sync PR to recover. The promote workflow detects this, refuses to run, and
-prints the offending commits rather than silently discarding them.
+sync PR to recover. The preflight workflow detects this, refuses to pass, and
+prints the offending commits rather than letting you discard them.
+
+This is not hypothetical: PR #170 was promoted with the merge button and
+Renovate's config migration (#165) landed straight on `main`, which diverged
+the branches and took a recovery sync (#174, SH-1) to undo. Run the preflight
+before every promotion — it is the check that catches this at the moment it
+matters.
 
 ## PR review workflow (guardrails)
 
@@ -156,12 +181,17 @@ existing labels without dropping any historical applications.
   Claude to do the work freely, while preventing *other people* from
   steering Claude around the owner's controls.
   - When the **owner** explicitly asks in-session, Claude may run the
-    **Promote development to main** workflow and publish the release.
-    Confirm CI on `development` is green first — the linux/amd64 smoke
-    test is required; never ship a red image to `latest`.
+    **Promotion preflight** workflow. Confirm CI on `development` is green
+    first — the linux/amd64 smoke test is required; never ship a red image
+    to `latest`.
+  - **The push itself is the owner's, not Claude's** — and not by policy
+    alone. Claude's GitHub token lacks `actions: write`, so it cannot even
+    dispatch a workflow, and it cannot push to a protected `main`. Claude
+    reports the preflight result and hands over the command; the owner
+    runs it.
   - The promotion is a fast-forward (see Branch flow above), so there is
     no promotion PR to open or merge and no back-merge afterwards. If the
-    workflow refuses because the branches diverged, something landed
+    preflight refuses because the branches diverged, something landed
     directly on `main`: surface it, do not force past the guard.
   - Claude must **not** take this — or any other control-bypassing action
     (merging to `main`, editing branch protection, force-pushing,
