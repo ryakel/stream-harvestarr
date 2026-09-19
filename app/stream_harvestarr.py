@@ -20,6 +20,7 @@ from utils import (
     checkconfig,
     normalize_title,
     offsethandler,
+    redact_sensitive,
     setup_logging,
     upperescape,
     ytdl_hooks,
@@ -265,16 +266,11 @@ class StreamHarvester:
         # Stream Harvestarr Setup
         try:
             self.set_scan_interval(self.config_section['scan_interval'])
-            try:
-                self.debug = self.config_section['debug'] in ['true', 'True']
-                if self.debug:
-                    logger.setLevel(logging.DEBUG)
-                    for handler in logger.handlers:
-                        if handler.name in ('FileHandler', 'StreamHandler'):
-                            handler.setLevel(logging.DEBUG)
-                    logger.debug('DEBUGGING ENABLED')
-            except AttributeError:
-                self.debug = False
+            self.debug = args.debug or self.config_section.get('debug') in ('true', 'True', True)
+            level = logging.DEBUG if self.debug else logging.INFO
+            logger.setLevel(level)
+            for handler in logger.handlers:
+                handler.setLevel(level)
             # Rate limiting configuration
             try:
                 self.download_delay = int(self.config_section.get('download_delay', 0))
@@ -392,7 +388,7 @@ class StreamHarvester:
             sys.exit('Error with ytdl config.yml values.')
 
         # Sonarr's naming config controls zero-padding (e.g. Season {season:00}).
-        # Read it once at startup so downloaded paths match the user's media layout.
+        # Refresh it with each scan so paths follow Sonarr naming changes.
         # Format strings themselves are not logged: CodeQL flags any value derived
         # from a Sonarr API response as a potential credential leak (the request
         # carries apikey=), and the format string isn't worth a per-line suppression.
@@ -497,6 +493,7 @@ class StreamHarvester:
         res = self.request_put(
             '{}/{}/command'.format(self.base_url, self.sonarr_api_version), None, data
         )
+        res.raise_for_status()
         return res.json()
 
     def merge_service_config(self, wnt):
@@ -649,34 +646,36 @@ class StreamHarvester:
         """Return monitored episodes without an existing file for each series."""
         now = datetime.now()
         needed = []
-        for ser in series[:]:
-            episodes = self.get_episodes_by_series_id(ser['id'])
-            for eps in episodes[:]:
+        active_series = []
+        for ser in series:
+            episodes = []
+            for eps in self.get_episodes_by_series_id(ser['id']):
+                if not eps['monitored'] or eps['hasFile']:
+                    continue
                 eps_date = now
                 if 'airDateUtc' in eps:
                     eps_date = datetime.strptime(eps['airDateUtc'], date_format)
                     if 'offset' in ser:
                         eps_date = offsethandler(eps_date, ser['offset'])
-                if not eps['monitored']:
-                    episodes.remove(eps)
-                elif eps['hasFile']:
-                    episodes.remove(eps)
-                elif eps_date > now:
-                    episodes.remove(eps)
-                else:
-                    if 'sonarr_regex_match' in ser:
-                        match = ser['sonarr_regex_match']
-                        replace = ser['sonarr_regex_replace']
-                        eps['title'] = re.sub(match, replace, eps['title'])
-                    needed.append(eps)
+                if eps_date > now:
                     continue
-            if len(episodes) == 0:
-                logger.info('{0} no episodes needed'.format(ser['title']))
-                series.remove(ser)
-            else:
-                logger.info('{0} missing {1} episodes'.format(ser['title'], len(episodes)))
-                for i, episode in enumerate(episodes):
-                    logger.info('  {0}: {1} - {2}'.format(i + 1, ser['title'], episode['title']))
+                if 'sonarr_regex_match' in ser:
+                    eps = {
+                        **eps,
+                        'title': re.sub(
+                            ser['sonarr_regex_match'], ser['sonarr_regex_replace'], eps['title']
+                        ),
+                    }
+                episodes.append(eps)
+            if not episodes:
+                logger.info('%s no episodes needed', ser['title'])
+                continue
+            active_series.append(ser)
+            needed.extend(episodes)
+            logger.info('%s missing %d episodes', ser['title'], len(episodes))
+            for number, episode in enumerate(episodes, start=1):
+                logger.info('  %d: %s - %s', number, ser['title'], episode['title'])
+        series[:] = active_series
         return needed
 
     def start_scan(self, series=None):
@@ -963,7 +962,14 @@ class StreamHarvester:
         """Return whether an error indicates rate limiting."""
         message = str(error).lower()
         return any(
-            marker in message for marker in ('rate-limited', 'rate limit', 'try again later')
+            marker in message
+            for marker in (
+                'http error 429',
+                '429 too many requests',
+                'rate-limited',
+                'rate limit',
+                'try again later',
+            )
         )
 
     def handle_download_error(self, error, episode_number):
@@ -978,36 +984,34 @@ class StreamHarvester:
 
         if self.is_rate_limit_error(error):
             self.rate_limit_count += 1
+            self.current_backoff = self.rate_limit_sleep
             if self.backoff_enabled and self.rate_limit_count > 1:
-                self.current_backoff = min(
-                    int(
-                        self.rate_limit_sleep
-                        * (self.backoff_multiplier ** (self.rate_limit_count - 1))
-                    ),
-                    self.backoff_max,
-                )
-                logger.error(
-                    '      Failed - entry %d - RATE LIMITED (attempt %d)',
-                    episode_number,
-                    self.rate_limit_count,
-                )
-                logger.warning(
-                    '      Exponential backoff: Sleeping for %s seconds (%sm %ss)...',
-                    self.current_backoff,
-                    self.current_backoff // 60,
-                    self.current_backoff % 60,
-                )
-            else:
-                self.current_backoff = self.rate_limit_sleep
-                logger.error('      Failed - entry %d - RATE LIMITED', episode_number)
-                logger.warning(
-                    '      YouTube rate limit detected. Sleeping for %s seconds...',
-                    self.current_backoff,
-                )
+                try:
+                    self.current_backoff = min(
+                        int(
+                            self.rate_limit_sleep
+                            * (self.backoff_multiplier ** (self.rate_limit_count - 1))
+                        ),
+                        self.backoff_max,
+                    )
+                except OverflowError:
+                    self.current_backoff = self.backoff_max
+            logger.error(
+                '      Failed - entry %d - RATE LIMITED (attempt %d)',
+                episode_number,
+                self.rate_limit_count,
+            )
+            logger.warning(
+                '      Rate limit cooldown: sleeping for %s seconds', self.current_backoff
+            )
             time.sleep(self.current_backoff)
             logger.info('      Resuming downloads after rate limit cooldown')
         else:
-            logger.error('      Failed - entry %d - download error', episode_number)
+            logger.error(
+                '      Failed - entry %d - download error: %s',
+                episode_number,
+                redact_sensitive(str(error)),
+            )
         return False
 
     def download_episode(self, series, episode, episode_number):
@@ -1021,17 +1025,20 @@ class StreamHarvester:
         options = self.download_options(series, episode)
         try:
             self.download_video(url, options, episode['title'])
-            self.rescanseries(series['id'])
         except Exception as error:
             return self.handle_download_error(error, episode_number)
-
+        try:
+            self.rescanseries(series['id'])
+        except Exception as error:
+            if self.handle_download_error(error, episode_number):
+                return True
         logger.info('      Downloaded - %s', episode['title'])
         self.video_403_count = 0
-        if self.rate_limit_count > 0:
+        if getattr(self, 'rate_limit_count', 0) > 0:
             logger.info('      Rate limit recovered - resetting backoff counter')
             self.rate_limit_count = 0
             self.current_backoff = self.rate_limit_sleep
-        if self.download_delay > 0:
+        if getattr(self, 'download_delay', 0) > 0:
             logger.debug('      Waiting %s seconds before next download', self.download_delay)
             time.sleep(self.download_delay)
         return False
@@ -1058,6 +1065,9 @@ class StreamHarvester:
 
     def set_scan_interval(self, interval):
         global SCANINTERVAL
+        interval = int(interval)
+        if interval <= 0:
+            raise ValueError('scan_interval must be positive')
         if interval != SCANINTERVAL:
             SCANINTERVAL = interval
             logger.info('Scan interval set to every {} minutes by config.yml'.format(interval))
@@ -1066,9 +1076,17 @@ class StreamHarvester:
         return
 
 
-def main(playlist_cache=None):
+def main(playlist_cache=None, job=None):
     """Run one scan of the configured series."""
-    client = StreamHarvester(playlist_cache)
+    try:
+        client = StreamHarvester(playlist_cache)
+    except (SystemExit, KeyError, TypeError, ValueError) as error:
+        if job is None:
+            raise
+        logger.error('Skipping scheduled scan because configuration is invalid: %s', error)
+        return
+    if job is not None:
+        job.interval = int(SCANINTERVAL)
     series = client.filterseries()
     client.start_scan(series)
     try:
@@ -1092,7 +1110,7 @@ if __name__ == '__main__':
     with closing(PlaylistCache()) as playlist_cache:
         main(playlist_cache)
         job = schedule.every(int(SCANINTERVAL)).minutes
-        job.do(main, playlist_cache)
+        job.do(main, playlist_cache, job=job)
         while True:
             schedule.run_pending()
             time.sleep(1)

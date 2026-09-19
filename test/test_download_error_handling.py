@@ -16,9 +16,11 @@ could never run — the one situation it exists for was the one that crashed.
 Same shape as issue #150: an unhandled TypeError in the scan takes the whole
 container down rather than skipping one episode.
 """
+
 import os
 import sys
 import unittest
+from unittest.mock import Mock
 
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'app'))
 sys.path.insert(0, APP_DIR)
@@ -29,13 +31,23 @@ sys.argv = sys.argv[:1]
 
 import stream_harvestarr  # noqa: E402
 
-SERIES = [{
-    'id': 1, 'title': "Epicly Later'd", 'url': 'https://www.youtube.com/@VICE/search?query=x',
-    'playlistreverse': False, 'path': "/tv/Epicly Later'd",
-}]
-EPISODES = [{
-    'seriesId': 1, 'title': 'Ben Kadow', 'seasonNumber': 5, 'episodeNumber': 8,
-}]
+SERIES = [
+    {
+        'id': 1,
+        'title': "Epicly Later'd",
+        'url': 'https://www.youtube.com/@VICE/search?query=x',
+        'playlistreverse': False,
+        'path': "/tv/Epicly Later'd",
+    }
+]
+EPISODES = [
+    {
+        'seriesId': 1,
+        'title': 'Ben Kadow',
+        'seasonNumber': 5,
+        'episodeNumber': 8,
+    }
+]
 
 
 class ExplodingYoutubeDL(object):
@@ -59,16 +71,13 @@ class ScriptedYoutubeDL(object):
     outcomes = []
 
     def __init__(self, options):
-        """Initialize the test fixture."""
         self.options = options
 
     def __enter__(self):
-        """Enter the fake client context."""
         type(self).instances.append(self)
         return self
 
     def __exit__(self, *exc_info):
-        """Exit the fake client context."""
         return False
 
     def download(self, urls):
@@ -79,7 +88,6 @@ class ScriptedYoutubeDL(object):
 
 
 class DownloadErrorTestCase(unittest.TestCase):
-
     def setUp(self):
         self._real_ydl = stream_harvestarr.yt_dlp.YoutubeDL
         self._real_sleep = stream_harvestarr.time.sleep
@@ -91,7 +99,6 @@ class DownloadErrorTestCase(unittest.TestCase):
         stream_harvestarr.time.sleep = self._real_sleep
 
     def client(self, message):
-        """Provide the test data for this scenario."""
         c = object.__new__(stream_harvestarr.StreamHarvester)
         c.debug = False
         c.ytdl_format = 'best'
@@ -117,9 +124,57 @@ class DownloadErrorTestCase(unittest.TestCase):
         """This used to raise TypeError out of main() and kill the process."""
         self.client('boom').download(SERIES, list(EPISODES))
 
+    def test_sonarr_rescan_failure_does_not_undo_download(self):
+        """A completed video remains successful when Sonarr is unavailable."""
+        c = self.client('unused')
+        c.download_video = Mock()
+        c.rescanseries = Mock(
+            side_effect=stream_harvestarr.requests.ConnectionError('Sonarr unavailable')
+        )
+        c.download_delay = 5
+        c.rate_limit_count = 2
+        c.video_403_count = 2
+        with self.assertLogs(stream_harvestarr.logger, level='WARNING'):
+            c.download(SERIES, EPISODES * 2)
+        self.assertEqual(c.download_video.call_count, 2)
+        self.assertEqual(c.rate_limit_count, 0)
+        self.assertEqual(c.video_403_count, 0)
+        self.assertEqual(self.slept, [5, 5])
+
+    def test_malformed_sonarr_response_does_not_undo_download(self):
+        c = self.client('unused')
+        c.download_video = Mock()
+        c.rescanseries = Mock(side_effect=ValueError('invalid JSON'))
+        with self.assertLogs(stream_harvestarr.logger, level='WARNING'):
+            self.assertFalse(c.download_episode(SERIES[0], EPISODES[0], 1))
+        c.rescanseries.assert_called_once_with(1)
+
+    def test_sonarr_http_failure_is_logged_without_leaking_api_key(self):
+        c = self.client('unused')
+        c.download_video = Mock()
+        c.base_url = 'http://sonarr:8989'
+        c.sonarr_api_version = 'api/v3'
+        c.rescanseries = stream_harvestarr.StreamHarvester.rescanseries.__get__(c)
+        response = Mock()
+        response.raise_for_status.side_effect = stream_harvestarr.requests.HTTPError(
+            '500 Server Error for url: http://sonarr/command?apikey=do-not-log'
+        )
+        c.request_put = Mock(return_value=response)
+        with self.assertLogs(stream_harvestarr.logger, level='WARNING') as logs:
+            self.assertFalse(c.download_episode(SERIES[0], EPISODES[0], 1))
+        response.json.assert_not_called()
+        self.assertNotIn('do-not-log', str(logs.output))
+
+    def test_long_rate_limit_streak_cannot_overflow(self):
+        c = self.client('HTTP Error 429: Too Many Requests')
+        c.rate_limit_count = 10_000
+        c.download(SERIES, list(EPISODES))
+        self.assertEqual(self.slept, [c.backoff_max])
+
     def test_rate_limit_error_does_not_escape(self):
         self.client("This content isn't available, try again later").download(
-            SERIES, list(EPISODES))
+            SERIES, list(EPISODES)
+        )
 
     def test_rate_limit_actually_sleeps(self):
         """The crash happened before the sleep, so backoff never ran."""
@@ -157,7 +212,9 @@ class DownloadErrorTestCase(unittest.TestCase):
         c = self.client('unused')
         ScriptedYoutubeDL.instances = []
         ScriptedYoutubeDL.outcomes = [
-            stream_harvestarr.yt_dlp.utils.DownloadError("ERROR: Unable to download video subtitles for 'en': HTTP Error 429"),
+            stream_harvestarr.yt_dlp.utils.DownloadError(
+                "ERROR: Unable to download video subtitles for 'en': HTTP Error 429"
+            ),
             None,
         ]
         stream_harvestarr.yt_dlp.YoutubeDL = ScriptedYoutubeDL
@@ -185,8 +242,10 @@ class DownloadErrorTestCase(unittest.TestCase):
         """A title or postprocessor mentioning subtitles is not a transport failure."""
         c = self.client('unused')
         stream_harvestarr.yt_dlp.YoutubeDL = ScriptedYoutubeDL
-        for message in ('ERROR: subtitle video is unavailable',
-                        'ERROR: Postprocessing: subtitle conversion failed'):
+        for message in (
+            'ERROR: subtitle video is unavailable',
+            'ERROR: Postprocessing: subtitle conversion failed',
+        ):
             ScriptedYoutubeDL.instances = []
             ScriptedYoutubeDL.outcomes = [stream_harvestarr.yt_dlp.utils.DownloadError(message)]
             with self.assertRaises(stream_harvestarr.yt_dlp.utils.DownloadError):
@@ -199,7 +258,9 @@ class DownloadErrorTestCase(unittest.TestCase):
         stream_harvestarr.yt_dlp.YoutubeDL = ScriptedYoutubeDL
         ScriptedYoutubeDL.instances = []
         ScriptedYoutubeDL.outcomes = [
-            stream_harvestarr.yt_dlp.utils.DownloadError("Unable to download video subtitles for 'en': 429"),
+            stream_harvestarr.yt_dlp.utils.DownloadError(
+                "Unable to download video subtitles for 'en': 429"
+            ),
             stream_harvestarr.yt_dlp.utils.DownloadError('HTTP Error 403: Forbidden'),
         ]
         with self.assertRaisesRegex(stream_harvestarr.yt_dlp.utils.DownloadError, '403'):
@@ -211,8 +272,11 @@ class DownloadErrorTestCase(unittest.TestCase):
         c = self.client('unused')
         stream_harvestarr.yt_dlp.YoutubeDL = ScriptedYoutubeDL
         ScriptedYoutubeDL.instances = []
-        ScriptedYoutubeDL.outcomes = [stream_harvestarr.yt_dlp.utils.DownloadError(
-            "Unable to download video subtitles for 'en': 429")]
+        ScriptedYoutubeDL.outcomes = [
+            stream_harvestarr.yt_dlp.utils.DownloadError(
+                "Unable to download video subtitles for 'en': 429"
+            )
+        ]
         with self.assertRaises(stream_harvestarr.yt_dlp.utils.DownloadError):
             c.download_video('https://youtu.be/x', {}, 'Episode')
         self.assertEqual(len(ScriptedYoutubeDL.instances), 1)
