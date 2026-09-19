@@ -142,29 +142,32 @@ class TestPartRefusal(unittest.TestCase):
             "Epicly Later'd: Ricky Oyola (Part 1/5)", upperescape('Ricky Oyola')))
 
 
-class TestRulesReachTheFilter(unittest.TestCase):
-    """Both rules must cull early, not only at ytsearch verification."""
+class TestRulesAppliedLocally(unittest.TestCase):
+    """The shared candidate matcher applies both series rules."""
 
-    def match_filter(self, **kw):
-        client = object.__new__(stream_harvestarr.StreamHarvester)
-        client.debug = False
-        return client.ytdl_eps_search_opts(
-            upperescape('Ricky Oyola'), False, rules=MatchRules(**kw))['match_filter']
+    def candidate_matches(self, title, **kw):
+        """Provide the test data for this scenario."""
+        return stream_harvestarr.title_matches(
+            {'title': title, 'url': 'https://youtu.be/x'},
+            upperescape('Ricky Oyola'),
+            MatchRules(**kw),
+        )
 
-    def test_part_is_culled_by_the_filter(self):
-        f = self.match_filter(allow_parts=False)
-        self.assertIsNotNone(f({'title': "Epicly Later'd: Ricky Oyola (Part 1/5)",
-                                'url': 'https://youtu.be/x'}))
+    def test_part_is_rejected(self):
+        """Verify part is rejected."""
+        self.assertFalse(self.candidate_matches(
+            "Epicly Later'd: Ricky Oyola (Part 1/5)", allow_parts=False))
 
-    def test_wrong_series_is_culled_by_the_filter(self):
-        f = self.match_filter(require=REQUIRE_SHOW)
-        self.assertIsNotNone(f({'title': 'Ricky Oyola | Let It Kill You',
-                                'url': 'https://youtu.be/x'}))
+    def test_wrong_series_is_rejected(self):
+        """Verify wrong series is rejected."""
+        self.assertFalse(self.candidate_matches(
+            'Ricky Oyola | Let It Kill You', require=REQUIRE_SHOW))
 
-    def test_a_good_candidate_survives_both(self):
-        f = self.match_filter(require=REQUIRE_SHOW, allow_parts=False)
-        self.assertIsNone(f({'title': "Epicly Later'd: Ricky Oyola",
-                             'url': 'https://youtu.be/x'}))
+    def test_good_candidate_survives_both(self):
+        """Verify good candidate survives both."""
+        self.assertTrue(self.candidate_matches(
+            "Epicly Later'd: Ricky Oyola", require=REQUIRE_SHOW,
+            allow_parts=False))
 
 
 class TestCompileRequire(unittest.TestCase):
