@@ -1,18 +1,30 @@
-import requests
-import urllib.parse
-import yt_dlp
-from yt_dlp.utils import match_filter_func
-import collections
-import os
-import sys
-import re
-from utils import upperescape, normalize_title, checkconfig, offsethandler, YoutubeDLLogger, ytdl_hooks, ytdl_hooks_debug, setup_logging  # NOQA
-from pathutils import normalize_root_folder, DEFAULT_ROOT_FOLDER
-from datetime import datetime
-import schedule
-import time
-import logging
 import argparse
+import collections
+import logging
+import os
+import re
+import sys
+import time
+import urllib.parse
+from contextlib import closing
+from dataclasses import dataclass
+from datetime import datetime
+
+import requests
+import schedule
+import yt_dlp
+from pathutils import DEFAULT_ROOT_FOLDER, normalize_root_folder
+from playlists import PlaylistCache, entry_url, is_single_video, video_search_url
+from utils import (
+    YoutubeDLLogger,
+    checkconfig,
+    normalize_title,
+    offsethandler,
+    setup_logging,
+    upperescape,
+    ytdl_hooks,
+    ytdl_hooks_debug,
+)
 
 # allow debug arg for verbose logging
 parser = argparse.ArgumentParser(description='Process some integers.')
@@ -22,7 +34,7 @@ args = parser.parse_args()
 # setup logger
 logger = setup_logging(True, True, args.debug)
 
-date_format = "%Y-%m-%dT%H:%M:%SZ"
+date_format = '%Y-%m-%dT%H:%M:%SZ'
 
 CONFIGFILE = os.environ['CONFIGPATH']
 CONFIGPATH = CONFIGFILE.replace('config.yml', '')
@@ -33,43 +45,9 @@ SCANINTERVAL = 60
 # node (installed on every image, including 386/armv7 where deno is not
 # packaged for Alpine).  See issue #96.
 JS_RUNTIMES = {'deno': {'path': None}, 'node': {'path': None}}
+CHANNEL_SEARCH_LIMIT = 20
 
-# yt-dlp results that are a *collection* rather than one video. Three shapes
-# reach ytsearch(): a resolved playlist ('playlist' / 'multi_video'), an
-# unresolved reference to one (_type 'url' whose url is a playlist or channel
-# page), and the top-level result for the configured url when nothing in it
-# matched. None of them may be handed to download(): with a fixed outtmpl and
-# nooverwrites, yt-dlp writes the collection's *first* item into the episode's
-# filename, so every episode gets the same wrong video.
-#
-# This is not theoretical. A channel-search url
-# (https://www.youtube.com/@CHANNEL/search?query=...) returns playlist entries
-# interleaved with videos, and YoutubeDL._match_entry deliberately skips
-# matchtitle for entries it can't confirm are a single video — so the playlist
-# sitting at index 0 was never filtered and won every episode.
-COLLECTION_TYPES = ('playlist', 'multi_video')
-# Markers that positively identify one video. Checked first so a legitimate
-# watch?v=ID&list=ID url isn't discarded along with the collections.
-VIDEO_URL_RE = re.compile(
-    r'(?:/watch\b|[?&]v=|/shorts/|youtu\.be/|/embed/)',
-    re.IGNORECASE
-)
-COLLECTION_URL_RE = re.compile(
-    r'(?:/playlist\b|[?&]list=|/@[^/]+/|/channel/|/user/|/c/|/results\b|/search\b)',
-    re.IGNORECASE
-)
-
-
-def is_single_video(entry):
-    """True when a yt-dlp result entry is one downloadable video."""
-    if entry.get('_type') in COLLECTION_TYPES:
-        return False
-    if entry.get('entries') is not None:
-        return False
-    url = entry.get('webpage_url') or entry.get('url') or ''
-    if VIDEO_URL_RE.search(url):
-        return True
-    return not COLLECTION_URL_RE.search(url)
+SHORT_URL_RE = re.compile(r'/shorts/', re.IGNORECASE)
 
 
 def apply_site_regex(title, site_regex):
@@ -89,12 +67,15 @@ def apply_site_regex(title, site_regex):
 # "Part N" markers, in the shapes uploaders actually use. Deliberately broad:
 # a false positive costs one episode staying missing, a false negative files a
 # fragment as the whole episode.
-PART_RE = re.compile(r"""
+PART_RE = re.compile(
+    r"""
     \(\s*(?:part|pt\.?)?\s*\d+\s*(?:[/⧸]\s*\d+)?\s*\)      # (Part 1/5) (Part 1) (1/5)
   | \b(?:part|pt\.?)\s*\d+\s*(?:[/⧸]|\s+o[fr]\s+)\s*\d+    # Part 1 of 2, Pt. 1/17, "1 or 3"
   | \b\d+\s+of\s+\d+\b                                      # 1 of 4
   | \b(?:part|pt\.?)\s*\d+\b                                # Part 2
-""", re.IGNORECASE | re.VERBOSE)
+""",
+    re.IGNORECASE | re.VERBOSE,
+)
 
 
 def has_part_marker(title):
@@ -137,22 +118,22 @@ def path_safe(name):
 
 
 # The per-series rules that decide whether a candidate title is the episode.
-# Bundled rather than passed as four positional arguments through four layers.
-#   site_regex:  compiled (pattern, replacement) from regex.site, or None
-#   require:     compiled pattern a title must contain, from regex.require
-#   allow_parts: whether a "Part N" upload may satisfy this episode
-MatchRules = collections.namedtuple(
-    'MatchRules', ('site_regex', 'require', 'allow_parts'), defaults=(None, None, True))
+@dataclass(frozen=True)
+class MatchRules:
+    site_regex: tuple[re.Pattern[str], str] | None = None
+    require: re.Pattern[str] | None = None
+    allow_parts: bool = True
+
+
 DEFAULT_RULES = MatchRules()
 
 
 def episode_title_matches(title, matchtitle, rules=DEFAULT_RULES):
     """True when a site title matches the episode pattern.
 
-    The single definition of "is this the episode we want". It is used twice
-    per search: by yt-dlp, wrapped in a match_filter so non-matching entries
-    are culled before they are fully extracted, and again by ytsearch() on
-    whatever survives.
+    The single definition of "is this the episode we want". Flat playlist
+    entries are cached once, then this matcher is applied locally for each
+    missing episode.
 
     ``require`` and the part check both read the *raw* title, deliberately.
     A site regex often strips exactly the decoration those two rely on — the
@@ -167,8 +148,9 @@ def episode_title_matches(title, matchtitle, rules=DEFAULT_RULES):
         return False
     if not matchtitle:
         return True
-    return re.search(
-        matchtitle, apply_site_regex(title, rules.site_regex), re.IGNORECASE) is not None
+    return (
+        re.search(matchtitle, apply_site_regex(title, rules.site_regex), re.IGNORECASE) is not None
+    )
 
 
 def title_matches(entry, matchtitle, rules=DEFAULT_RULES):
@@ -185,53 +167,23 @@ def title_matches(entry, matchtitle, rules=DEFAULT_RULES):
     return episode_title_matches(entry.get('title'), matchtitle, rules)
 
 
-def make_title_filter(matchtitle, rules=DEFAULT_RULES, base_filter=None):
-    """Build the match_filter callable yt-dlp culls entries with.
-
-    This replaces yt-dlp's ``matchtitle`` option outright. Two reasons, either
-    sufficient on its own:
-
-    1. **A single null title kills the whole extraction.** ``_match_entry``
-       guards with ``if 'title' in info_dict`` — key present, value possibly
-       None — then hands it straight to ``re.search``. One private or deleted
-       video in a playlist raises TypeError, ``ignoreerrors`` swallows it, and
-       ``extract_info`` returns None for *every* entry. A 517-video playlist
-       with one private member returned nothing at all, for every episode, and
-       the log line ("No metadata returned") pointed at the playlist rather
-       than at the one bad video.
-    2. **It can't be combined with a site regex.** ``matchtitle`` tests the raw
-       title, which is precisely the title ``regex.site`` exists to rewrite, so
-       the entries the regex is meant to rescue get dropped before we see them.
-
-    A match_filter runs at the same points ``matchtitle`` does — including the
-    cheap pre-filter over unresolved playlist entries — so the early culling
-    that keeps a large channel affordable is unchanged.
-    """
-    def _filter(info_dict, incomplete=False):
-        if base_filter is not None:
-            rejected = base_filter(info_dict, incomplete)
-            if rejected is not None:
-                return rejected
-        title = info_dict.get('title')
-        if title is None:
-            # Unavailable video, or a pre-filter pass that hasn't resolved the
-            # title yet. Keep it: extraction will fail on its own if it's dead,
-            # and ytsearch rejects a null title before ever returning it.
-            return None
-        if not episode_title_matches(title, matchtitle, rules):
-            return '"{}" did not match the episode'.format(title)
-        return None
-    return _filter
-
-
 # Keys filterseries() and merge_service_config() actually read. Anything else
 # in a series or service block is silently ignored by the config loader, which
 # makes a typo — or an invented key — indistinguishable from a working one.
-INHERITABLE_KEYS = frozenset((
-    'username', 'password', 'cookies_file', 'format',
-    'playlistreverse', 'offset', 'subtitles', 'regex',
-    'strict_parts',
-))
+INHERITABLE_KEYS = frozenset(
+    (
+        'username',
+        'password',
+        'cookies_file',
+        'format',
+        'playlistreverse',
+        'offset',
+        'subtitles',
+        'regex',
+        'strict_parts',
+        'channel_search',
+    )
+)
 KNOWN_SERIES_KEYS = INHERITABLE_KEYS | frozenset(('title', 'url', 'service'))
 KNOWN_SERVICE_KEYS = INHERITABLE_KEYS | frozenset(('title', 'url'))
 KNOWN_REGEX_KEYS = frozenset(('sonarr', 'site', 'require'))
@@ -247,9 +199,7 @@ def warn_unknown_keys(entries, known, kind):
         if unknown:
             logger.warning(
                 '{} "{}" has unrecognised config key(s): {} - these are ignored. '
-                'Valid keys: {}'.format(
-                    kind, name, ', '.join(unknown), ', '.join(sorted(known))
-                )
+                'Valid keys: {}'.format(kind, name, ', '.join(unknown), ', '.join(sorted(known)))
             )
         regex = entry.get('regex')
         if isinstance(regex, dict):
@@ -299,9 +249,8 @@ def compile_require(pattern, series_title):
         return None
 
 
-class StreamHarvester(object):
-
-    def __init__(self):
+class StreamHarvester:
+    def __init__(self, playlist_cache=None):
         """Set up app with config file settings"""
         cfg = checkconfig()
         # Set config key for backwards compatibility in config.yml
@@ -315,11 +264,9 @@ class StreamHarvester(object):
                 self.debug = self.config_section['debug'] in ['true', 'True']
                 if self.debug:
                     logger.setLevel(logging.DEBUG)
-                    for logs in logger.handlers:
-                        if logs.name == 'FileHandler':
-                            logs.setLevel(logging.DEBUG)
-                        if logs.name == 'StreamHandler':
-                            logs.setLevel(logging.DEBUG)
+                    for handler in logger.handlers:
+                        if handler.name in ('FileHandler', 'StreamHandler'):
+                            handler.setLevel(logging.DEBUG)
                     logger.debug('DEBUGGING ENABLED')
             except AttributeError:
                 self.debug = False
@@ -327,13 +274,21 @@ class StreamHarvester(object):
             try:
                 self.download_delay = int(self.config_section.get('download_delay', 0))
                 if self.download_delay > 0:
-                    logger.info('Download delay set to {} seconds between downloads'.format(self.download_delay))
+                    logger.info(
+                        'Download delay set to {} seconds between downloads'.format(
+                            self.download_delay
+                        )
+                    )
             except (AttributeError, ValueError):
                 self.download_delay = 0
             try:
                 self.sleep_requests = int(self.config_section.get('sleep_requests', 0))
                 if self.sleep_requests > 0:
-                    logger.info('Sleep requests set to {} seconds between API requests'.format(self.sleep_requests))
+                    logger.info(
+                        'Sleep requests set to {} seconds between API requests'.format(
+                            self.sleep_requests
+                        )
+                    )
             except (AttributeError, ValueError):
                 self.sleep_requests = 0
             try:
@@ -343,7 +298,11 @@ class StreamHarvester(object):
                 self.rate_limit_sleep = 900
             # Exponential backoff configuration
             try:
-                self.backoff_enabled = self.config_section.get('exponential_backoff', True) in ['true', 'True', True]
+                self.backoff_enabled = self.config_section.get('exponential_backoff', True) in [
+                    'true',
+                    'True',
+                    True,
+                ]
                 if self.backoff_enabled:
                     logger.info('Exponential backoff enabled for rate limiting')
             except (AttributeError, ValueError):
@@ -361,27 +320,26 @@ class StreamHarvester(object):
             # Exponential backoff state tracking
             self.rate_limit_count = 0
             self.current_backoff = self.rate_limit_sleep
+            self.video_403_count = 0
+            self.playlist_cache = playlist_cache if playlist_cache is not None else PlaylistCache()
         except Exception:
-            sys.exit("Error with streamharvestarr config.yml values.")
+            sys.exit('Error with streamharvestarr config.yml values.')
 
         # Sonarr Setup
         try:
-            api = "api"
-            scheme = "http"
-            basedir = ""
+            api = 'api'
+            scheme = 'http'
+            basedir = ''
             if cfg['sonarr'].get('version', '').lower() == 'v4':
-                api = "api/v3"
+                api = 'api/v3'
                 logger.debug('Sonarr api set to v4')
             if cfg['sonarr']['ssl'].lower() == 'true':
-                scheme = "https"
+                scheme = 'https'
             if cfg['sonarr'].get('basedir', ''):
                 basedir = '/' + cfg['sonarr'].get('basedir', '')
 
-            self.base_url = "{0}://{1}:{2}{3}".format(
-                scheme,
-                cfg['sonarr']['host'],
-                str(cfg['sonarr']['port']),
-                basedir
+            self.base_url = '{0}://{1}:{2}{3}'.format(
+                scheme, cfg['sonarr']['host'], str(cfg['sonarr']['port']), basedir
             )
             self.sonarr_api_version = api
             self.api_key = cfg['sonarr']['apikey']
@@ -391,20 +349,20 @@ class StreamHarvester(object):
             raw = cfg['sonarr'].get('root_folder', DEFAULT_ROOT_FOLDER)
             self.root_folder = normalize_root_folder(raw)
         except Exception as e:
-            sys.exit(f"Error with sonarr config.yml values: {e}")
+            sys.exit(f'Error with sonarr config.yml values: {e}')
 
         # YTDL Setup
         try:
             self.ytdl_format = cfg['ytdl']['default_format']
         except Exception as e:
-            sys.exit(f"Error with ytdl config.yml values: {e}")
+            sys.exit(f'Error with ytdl config.yml values: {e}')
 
         # Series Setup
         try:
-            self.series = cfg["series"]
+            self.series = cfg['series']
             warn_unknown_keys(self.series, KNOWN_SERIES_KEYS, 'Series')
         except Exception as e:
-            sys.exit(f"Error with series config.yml values: {e}")
+            sys.exit(f'Error with series config.yml values: {e}')
 
         # Services setup - optional, provides base config for series to inherit from
         try:
@@ -413,18 +371,20 @@ class StreamHarvester(object):
             for svc in cfg.get('services', []):
                 self.services[svc['title']] = svc
             if self.services:
-                logger.info('Loaded {} service(s): {}'.format(
-                    len(self.services), ', '.join(self.services.keys())
-                ))
+                logger.info(
+                    'Loaded {} service(s): {}'.format(
+                        len(self.services), ', '.join(self.services.keys())
+                    )
+                )
         except Exception:
             self.services = {}
             logger.warning('Error loading services config, continuing without services')
 
         # Merge output format
         try:
-            self.ytdl_merge_output_format = cfg["ytdl"]["merge_output_format"]
+            self.ytdl_merge_output_format = cfg['ytdl']['merge_output_format']
         except Exception:
-            sys.exit("Error with ytdl config.yml values.")
+            sys.exit('Error with ytdl config.yml values.')
 
         # Sonarr's naming config controls zero-padding (e.g. Season {season:00}).
         # Read it once at startup so downloaded paths match the user's media layout.
@@ -445,10 +405,7 @@ class StreamHarvester(object):
     def get_naming_config(self):
         """Return Sonarr naming configuration including season folder format"""
         logger.debug('Begin call Sonarr for naming config')
-        res = self.request_get("{}/{}/config/naming".format(
-            self.base_url,
-            self.sonarr_api_version
-        ))
+        res = self.request_get('{}/{}/config/naming'.format(self.base_url, self.sonarr_api_version))
         return res.json()
 
     def parse_number_format(self, format_string, token):
@@ -478,54 +435,40 @@ class StreamHarvester(object):
         """Returns all episodes for the given series"""
         logger.debug('Begin call Sonarr for all episodes for series_id: {}'.format(series_id))
         args = {'seriesId': series_id}
-        res = self.request_get("{}/{}/episode".format(
-            self.base_url, 
-            self.sonarr_api_version
-            ), args
-        )
+        res = self.request_get('{}/{}/episode'.format(self.base_url, self.sonarr_api_version), args)
         return res.json()
 
     def get_episode_files_by_series_id(self, series_id):
         """Returns all episode files for the given series"""
-        res = self.request_get("{}/{}/episodefile?seriesId={}".format(
-            self.base_url, 
-            self.sonarr_api_version,
-            series_id
-        ))
+        res = self.request_get(
+            '{}/{}/episodefile?seriesId={}'.format(
+                self.base_url, self.sonarr_api_version, series_id
+            )
+        )
         return res.json()
 
     def get_series(self):
         """Return all series in your collection"""
         logger.debug('Begin call Sonarr for all available series')
-        res = self.request_get("{}/{}/series".format(
-            self.base_url, 
-            self.sonarr_api_version
-        ))
+        res = self.request_get('{}/{}/series'.format(self.base_url, self.sonarr_api_version))
         return res.json()
 
     def get_series_by_series_id(self, series_id):
         """Return the series with the matching ID or 404 if no matching series is found"""
         logger.debug('Begin call Sonarr for specific series series_id: {}'.format(series_id))
-        res = self.request_get("{}/{}/series/{}".format(
-            self.base_url,
-            self.sonarr_api_version,
-            series_id
-        ))
+        res = self.request_get(
+            '{}/{}/series/{}'.format(self.base_url, self.sonarr_api_version, series_id)
+        )
         return res.json()
 
     def request_get(self, url, params=None):
         """Wrapper on the requests.get"""
         logger.debug('Begin GET request to Sonarr API')
-        args = {
-            "apikey": self.api_key
-        }
+        args = {'apikey': self.api_key}
         if params is not None:
             logger.debug('GET request with %d additional params', len(params))
             args.update(params)
-        url = "{}?{}".format(
-            url,
-            urllib.parse.urlencode(args)
-        )
+        url = '{}?{}'.format(url, urllib.parse.urlencode(args))
         res = requests.get(url)
         return res
 
@@ -535,31 +478,19 @@ class StreamHarvester(object):
         headers = {
             'Content-Type': 'application/json',
         }
-        args = (
-            ('apikey', self.api_key),
-        )
+        args = (('apikey', self.api_key),)
         if params is not None:
             args.update(params)
             logger.debug('PUT request params keys: {}'.format(list(params.keys())))
-        res = requests.post(
-            url,
-            headers=headers,
-            params=args,
-            json=jsondata
-        )
+        res = requests.post(url, headers=headers, params=args, json=jsondata)
         return res
 
     def rescanseries(self, series_id):
         """Refresh series information from trakt and rescan disk"""
         logger.debug('Begin call Sonarr to rescan for series_id: {}'.format(series_id))
-        data = {
-            "name": "RescanSeries",
-            "seriesId": int(series_id)
-        }
+        data = {'name': 'RescanSeries', 'seriesId': int(series_id)}
         res = self.request_put(
-            "{}/{}/command".format(self.base_url, self.sonarr_api_version),
-            None, 
-            data
+            '{}/{}/command'.format(self.base_url, self.sonarr_api_version), None, data
         )
         return res.json()
 
@@ -577,13 +508,17 @@ class StreamHarvester(object):
         service_name = wnt['service']
 
         if service_name not in self.services:
-            logger.warning('Series "{}" references unknown service "{}" - ignoring'.format(
-                wnt.get('title', '?'), service_name
-            ))
+            logger.warning(
+                'Series "{}" references unknown service "{}" - ignoring'.format(
+                    wnt.get('title', '?'), service_name
+                )
+            )
             return wnt
 
         svc = self.services[service_name]
-        logger.debug('Merging service "{}" into series "{}"'.format(service_name, wnt.get('title', '?')))
+        logger.debug(
+            'Merging service "{}" into series "{}"'.format(service_name, wnt.get('title', '?'))
+        )
 
         # Copy series config so we never mutate the original YAML-parsed dict
         merged = dict(wnt)
@@ -629,7 +564,9 @@ class StreamHarvester(object):
                 for cred_key in ('username', 'password', 'cookies_file'):
                     if cred_key in merged and cred_key not in wnt:
                         del merged[cred_key]
-                        logger.debug('  Removed inherited {} due to domain mismatch'.format(cred_key))
+                        logger.debug(
+                            '  Removed inherited {} due to domain mismatch'.format(cred_key)
+                        )
             else:
                 logger.debug('  Absolute URL domain matches service domain - credentials retained')
 
@@ -650,6 +587,7 @@ class StreamHarvester(object):
                     ser['subtitles_languages'] = ['en']
                     ser['subtitles_autogenerated'] = False
                     ser['strict_parts'] = False
+                    ser['channel_search'] = wnt.get('channel_search') in ('true', 'True', True)
                     # Update values
                     if 'regex' in wnt:
                         regex = wnt['regex']
@@ -667,8 +605,7 @@ class StreamHarvester(object):
                                 ser['title'],
                             )
                         if 'require' in regex:
-                            ser['site_require'] = compile_require(
-                                regex['require'], ser['title'])
+                            ser['site_require'] = compile_require(regex['require'], ser['title'])
                     if 'strict_parts' in wnt:
                         # checkconfig() parses with yaml.BaseLoader, so every
                         # scalar arrives as a string and a bare truth test would
@@ -704,13 +641,14 @@ class StreamHarvester(object):
         return matched
 
     def getseriesepisodes(self, series):
+        """Return monitored episodes without an existing file for each series."""
         now = datetime.now()
         needed = []
         for ser in series[:]:
             episodes = self.get_episodes_by_series_id(ser['id'])
             for eps in episodes[:]:
                 eps_date = now
-                if "airDateUtc" in eps:
+                if 'airDateUtc' in eps:
                     eps_date = datetime.strptime(eps['airDateUtc'], date_format)
                     if 'offset' in ser:
                         eps_date = offsethandler(eps_date, ser['offset'])
@@ -731,17 +669,16 @@ class StreamHarvester(object):
                 logger.info('{0} no episodes needed'.format(ser['title']))
                 series.remove(ser)
             else:
-                logger.info('{0} missing {1} episodes'.format(
-                    ser['title'],
-                    len(episodes)
-                ))
-                for i, e in enumerate(episodes):
-                    logger.info('  {0}: {1} - {2}'.format(
-                        i + 1,
-                        ser['title'],
-                        e['title']
-                    ))
+                logger.info('{0} missing {1} episodes'.format(ser['title'], len(episodes)))
+                for i, episode in enumerate(episodes):
+                    logger.info('  {0}: {1} - {2}'.format(i + 1, ser['title'], episode['title']))
         return needed
+
+    def start_scan(self, series=None):
+        """Prepare the playlist cache for the current series set."""
+        self.video_403_count = 0
+        playlists = None if series is None else {item['url'] for item in series}
+        self.playlist_cache.begin_scan(playlists)
 
     def appendcookie(self, ytdlopts, cookies=None):
         """Checks if specified cookie file exists in config
@@ -756,13 +693,11 @@ class StreamHarvester(object):
             cookie_path = os.path.abspath(CONFIGPATH + cookies)
             cookie_exists = os.path.exists(cookie_path)
             if cookie_exists is True:
-                ytdlopts.update({
-                    'cookiefile': cookie_path
-                })
+                ytdlopts.update({'cookiefile': cookie_path})
                 # if self.debug is True:
                 logger.debug('  Cookies file loaded successfully')
             if cookie_exists is False:
-                logger.warning('  cookie files specified but doesn''t exist.')
+                logger.warning('  cookie files specified but doesnt exist.')
             return ytdlopts
         else:
             return ytdlopts
@@ -778,13 +713,17 @@ class StreamHarvester(object):
                 updated with username and password if both are provided
         """
         if username is not None and password is not None:
-            ytdlopts.update({
-                'username': username,
-                'password': password,
-            })
+            ytdlopts.update(
+                {
+                    'username': username,
+                    'password': password,
+                }
+            )
             logger.debug('  Credentials loaded successfully')
         elif username is not None or password is not None:
-            logger.warning('  username or password specified but both are required - skipping credentials')
+            logger.warning(
+                '  username or password specified but both are required - skipping credentials'
+            )
         return ytdlopts
 
     def customformat(self, ytdlopts, customformat=None):
@@ -797,50 +736,30 @@ class StreamHarvester(object):
                 updated: with new format value if customformat exists
         """
         if customformat is not None:
-            ytdlopts.update({
-                'format': customformat
-            })
+            ytdlopts.update({'format': customformat})
             return ytdlopts
         else:
             return ytdlopts
 
-    def ytdl_eps_search_opts(self, regextitle, playlistreverse, cookies=None, username=None,
-                             password=None, rules=DEFAULT_RULES):
-        # Exclude YouTube Shorts. match_filter takes a callable, negation
-        # goes between the key and the operator, and the '?' keeps entries
-        # whose url is absent (merged formats have no top-level url).
-        shorts_filter = match_filter_func('url !*=? /shorts/')
+    def ytdl_eps_search_opts(self, playlistreverse, cookies=None, username=None, password=None):
+        """Build yt-dlp options for local episode matching."""
         ytdlopts = {
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
             'quiet': True,
-            # Search for the episode without resolving anything. Two effects,
-            # both large:
-            #
-            #  - Nested collections are not walked. A channel-search result
-            #    carries the channel's playlists alongside its videos, and
-            #    yt-dlp recurses into every one of them: on the VICE search
-            #    that is 13 playlists, the largest 1773 items, walked again
-            #    for *every* episode. is_single_video() already refuses to
-            #    return one, so resolving them only ever cost requests.
-            #  - Candidates are matched on their flat title instead of being
-            #    fully extracted first.
-            #
-            # Nothing downstream needs a resolved entry: a flat one carries
-            # the title to match on and the canonical watch url, and
-            # download() re-extracts that url anyway (see issue #114).
+            # Search resolves only the configured source. Playlist entries stay
+            # flat and are matched locally for each missing episode.
             'extract_flat': 'in_playlist',
-            # The title check lives in the match_filter, never in yt-dlp's
-            # 'matchtitle' option. See make_title_filter for why.
-            'match_filter': make_title_filter(regextitle, rules, shorts_filter),
             'js_runtimes': JS_RUNTIMES,
         }
         if self.debug is True:
-            ytdlopts.update({
-                'quiet': False,
-                'logger': YoutubeDLLogger(),
-                'progress_hooks': [ytdl_hooks],
-            })
+            ytdlopts.update(
+                {
+                    'quiet': False,
+                    'logger': YoutubeDLLogger(),
+                    'progress_hooks': [ytdl_hooks],
+                }
+            )
         ytdlopts = self.appendcookie(ytdlopts, cookies)
         ytdlopts = self.appendcredentials(ytdlopts, username, password)
         if self.debug is True:
@@ -848,222 +767,271 @@ class StreamHarvester(object):
         return ytdlopts
 
     def ytsearch(self, ydl_opts, playlist, matchtitle=None, rules=DEFAULT_RULES):
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                result = ydl.extract_info(
-                    playlist,
-                    download=False
-                )
-        except Exception as e:
-            logger.error(e)
-            return False, ''
+        """Return the first candidate matching the URL and title rules."""
+        if matchtitle is None:
+            matchtitle = ydl_opts.get('matchtitle')
+        candidates = self.playlist_cache.get(ydl_opts, playlist)
+        count = 0
+        for count, entry in enumerate(candidates, start=1):
+            url = entry_url(entry)
+            if SHORT_URL_RE.search(url or ''):
+                continue
+            if not is_single_video(entry):
+                logger.debug('  Skipping collection result: %s', entry.get('title') or url)
+                continue
+            if not title_matches(entry, matchtitle, rules):
+                logger.debug('  Skipping title mismatch: %s', entry.get('title'))
+                continue
+            if not url or url == playlist:
+                continue
+            logger.debug('  Matched "%s"', entry.get('title'))
+            return url
+        logger.debug('  No single video matched in %d result(s)', count)
+        return None
+
+    def _episode_rules(self, series, episode):
+        """Build matching rules for one series episode."""
+        return MatchRules(
+            site_regex=series.get('site_regex'),
+            require=series.get('site_require'),
+            allow_parts=parts_allowed(episode['title'], series.get('strict_parts')),
+        )
+
+    def find_episode(self, series, episode):
+        """Return the first matching video URL for one missing episode."""
+        options = self.ytdl_eps_search_opts(
+            series['playlistreverse'],
+            cookies=series.get('cookies_file'),
+            username=series.get('username'),
+            password=series.get('password'),
+        )
+        matchtitle = upperescape(episode['title'])
+        rules = self._episode_rules(series, episode)
+        search_url = video_search_url(series['url'], episode['title'])
+        if search_url and series.get('channel_search', False):
+            for limit in (CHANNEL_SEARCH_LIMIT, None):
+                # Relevance order is independent of chronological preference.
+                search_options = {**options, 'lazy_playlist': True, 'playlistreverse': False}
+                if limit is not None:
+                    search_options['playlistend'] = limit
+                try:
+                    match = self.ytsearch(search_options, search_url, matchtitle, rules)
+                    if match:
+                        return match
+                finally:
+                    self.playlist_cache.discard(search_options, search_url)
+        return self.ytsearch(options, series['url'], matchtitle, rules)
+
+    def download_options(self, series, episode):
+        """Build yt-dlp options for one video download."""
+        season = self.format_season(episode['seasonNumber'])
+        number = self.format_episode(episode['episodeNumber'])
+        options = {
+            'format': self.ytdl_format,
+            'quiet': True,
+            'merge_output_format': self.ytdl_merge_output_format,
+            'outtmpl': ('{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s').format(
+                self.root_folder,
+                series['path'],
+                season,
+                path_safe(series['title']),
+                number,
+                path_safe(episode['title']),
+            ),
+            'progress_hooks': [ytdl_hooks],
+            'noplaylist': True,
+            'forceipv4': True,
+            'sleep_interval': 5,
+            'max_sleep_interval': 30,
+            'nocontinue': True,
+            'nooverwrites': True,
+            'throttled_rate': '100K',
+            'concurrent_fragments': 5,
+            'audio_multistreams': True,
+            'js_runtimes': JS_RUNTIMES,
+        }
+        if self.sleep_requests > 0:
+            options['sleep_interval_requests'] = self.sleep_requests
+
+        options = self.appendcookie(options, series.get('cookies_file'))
+        options = self.appendcredentials(options, series.get('username'), series.get('password'))
+        if 'format' in series:
+            options = self.customformat(options, series['format'])
+        if series.get('subtitles'):
+            autosubs_raw = series['subtitles_autogenerated']
+            autosubs = (
+                autosubs_raw
+                if isinstance(autosubs_raw, bool)
+                else autosubs_raw.lower() in ('true', 't', 'y', 'yes')
+            )
+            options.update(
+                {
+                    'writesubtitles': True,
+                    'writeautomaticsub': autosubs,
+                    'subtitleslangs': series['subtitles_languages'],
+                    'postprocessors': [
+                        {'key': 'FFmpegSubtitlesConvertor', 'format': 'srt'},
+                        {'key': 'FFmpegEmbedSubtitle'},
+                    ],
+                }
+            )
+        if self.debug:
+            options.update(
+                {
+                    'quiet': False,
+                    'logger': YoutubeDLLogger(),
+                    'progress_hooks': [ytdl_hooks_debug],
+                }
+            )
+        return options
+
+    @staticmethod
+    def without_subtitles(options):
+        """Remove subtitle options and postprocessors for a fallback download."""
+        fallback = dict(options)
+        for key in ('writesubtitles', 'writeautomaticsub', 'subtitleslangs'):
+            fallback.pop(key, None)
+        postprocessors = [
+            processor
+            for processor in fallback.get('postprocessors', [])
+            if processor.get('key')
+            not in {
+                'FFmpegSubtitlesConvertor',
+                'FFmpegEmbedSubtitle',
+            }
+        ]
+        if postprocessors:
+            fallback['postprocessors'] = postprocessors
         else:
-            # ignoreerrors makes yt-dlp swallow errors and return None: a null
-            # entry title trips its own matchtitle regex.
-            if result is None:
-                logger.error('No metadata returned for {}'.format(playlist))
-                return False, ''
-            # The caller passes the same pattern object it built the opts from,
-            # so our check can't drift from the one yt-dlp applied. The fallback
-            # covers callers that only set it in the opts dict.
-            if matchtitle is None:
-                matchtitle = ydl_opts.get('matchtitle')
-            entries = result.get('entries')
-            candidates = list(entries) if entries else [result]
-            for entry in candidates:
-                if entry is None:
-                    continue
-                if not is_single_video(entry):
-                    logger.debug('  Skipping collection result: {}'.format(
-                        entry.get('title') or entry.get('url')
-                    ))
-                    continue
-                if not title_matches(entry, matchtitle, rules):
-                    logger.debug('  Skipping title mismatch: {}'.format(entry.get('title')))
-                    continue
-                # Prefer webpage_url over url: yt-dlp's YouTube extractor only
-                # sets url when format selection picks a single non-merge
-                # format. HLS videos (most modern YouTube uploads) trigger
-                # ffmpeg audio+video merge — the "merged format" dict
-                # (YoutubeDL._merge) has requested_formats but no top-level
-                # url, so info_dict.update gives us an entry with
-                # .get('url') == None even though extraction succeeded.
-                # webpage_url is always set by the YouTube extractor directly;
-                # the .get('url') fallback covers other extractors that only
-                # populate url. See issue #114. Since the search runs flat
-                # (extract_flat), that fallback is now the normal path: a flat
-                # entry has no webpage_url, and its url is the canonical watch
-                # url rather than a media stream.
-                video_url = entry.get('webpage_url') or entry.get('url')
-                if not video_url or video_url == playlist:
-                    continue
-                logger.debug('  Matched "{}"'.format(entry.get('title')))
-                return True, video_url
-            logger.debug('  No single video matched in {} result(s)'.format(len(candidates)))
-            return False, ''
+            fallback.pop('postprocessors', None)
+        return fallback
+
+    def download_video(self, url, options, title):
+        """Retry once without subtitles when their download fails."""
+        try:
+            with yt_dlp.YoutubeDL(options) as ydl:
+                ydl.download([url])
+        except yt_dlp.utils.DownloadError as error:
+            # yt-dlp wraps subtitle transport errors in a plain DownloadError;
+            # there is no dedicated subtitle exception type. Fail closed if
+            # its diagnostic changes, or subtitle downloading was not enabled.
+            message = str(error).removeprefix('ERROR: ')
+            if not (
+                (options.get('writesubtitles') or options.get('writeautomaticsub'))
+                and message.startswith('Unable to download video subtitles for ')
+            ):
+                raise
+            logger.warning(
+                'Subtitles unavailable for %s; retrying video without subtitles',
+                title,
+            )
+            fallback = self.without_subtitles(options)
+            with yt_dlp.YoutubeDL(fallback) as ydl:
+                ydl.download([url])
+
+    @staticmethod
+    def is_forbidden_error(error):
+        """Return whether an error indicates an HTTP 403 response."""
+        message = str(error).lower()
+        return 'http error 403' in message or '403 forbidden' in message
+
+    @staticmethod
+    def is_rate_limit_error(error):
+        """Return whether an error indicates rate limiting."""
+        message = str(error).lower()
+        return any(
+            marker in message for marker in ('rate-limited', 'rate limit', 'try again later')
+        )
+
+    def handle_download_error(self, error, episode_number):
+        """Log a download error and return whether the scan should stop."""
+        if self.is_forbidden_error(error):
+            self.video_403_count += 1
+            if self.video_403_count >= 3:
+                logger.warning('Three video 403s; stopping this scan and retrying later')
+                return True
+        else:
+            self.video_403_count = 0
+
+        if self.is_rate_limit_error(error):
+            self.rate_limit_count += 1
+            if self.backoff_enabled and self.rate_limit_count > 1:
+                self.current_backoff = min(
+                    int(
+                        self.rate_limit_sleep
+                        * (self.backoff_multiplier ** (self.rate_limit_count - 1))
+                    ),
+                    self.backoff_max,
+                )
+                logger.error(
+                    '      Failed - entry %d - RATE LIMITED (attempt %d)',
+                    episode_number,
+                    self.rate_limit_count,
+                )
+                logger.warning(
+                    '      Exponential backoff: Sleeping for %s seconds (%sm %ss)...',
+                    self.current_backoff,
+                    self.current_backoff // 60,
+                    self.current_backoff % 60,
+                )
+            else:
+                self.current_backoff = self.rate_limit_sleep
+                logger.error('      Failed - entry %d - RATE LIMITED', episode_number)
+                logger.warning(
+                    '      YouTube rate limit detected. Sleeping for %s seconds...',
+                    self.current_backoff,
+                )
+            time.sleep(self.current_backoff)
+            logger.info('      Resuming downloads after rate limit cooldown')
+        else:
+            logger.error('      Failed - entry %d - download error', episode_number)
+        return False
+
+    def download_episode(self, series, episode, episode_number):
+        """Find and download one episode, returning whether the scan should stop."""
+        url = self.find_episode(series, episode)
+        if url is None:
+            logger.info('    %s: Missing - %s:', episode_number, episode['title'])
+            return False
+
+        logger.info('    %s: Found - %s:', episode_number, episode['title'])
+        options = self.download_options(series, episode)
+        try:
+            self.download_video(url, options, episode['title'])
+            self.rescanseries(series['id'])
+        except Exception as error:
+            return self.handle_download_error(error, episode_number)
+
+        logger.info('      Downloaded - %s', episode['title'])
+        self.video_403_count = 0
+        if self.rate_limit_count > 0:
+            logger.info('      Rate limit recovered - resetting backoff counter')
+            self.rate_limit_count = 0
+            self.current_backoff = self.rate_limit_sleep
+        if self.download_delay > 0:
+            logger.debug('      Waiting %s seconds before next download', self.download_delay)
+            time.sleep(self.download_delay)
+        return False
 
     def download(self, series, episodes):
-        if len(series) != 0:
-            logger.info("Processing Wanted Downloads")
-            for s, ser in enumerate(series):
-                logger.info("  {}:".format(ser['title']))
-                for e, eps in enumerate(episodes):
-                    if ser['id'] == eps['seriesId']:
-                        cookies = None
-                        username = None
-                        password = None
-                        url = ser['url']
-                        if 'cookies_file' in ser:
-                            cookies = ser['cookies_file']
-                        if 'username' in ser:
-                            username = ser['username']
-                        if 'password' in ser:
-                            password = ser['password']
-                        # Build the pattern once and hand the same value to the
-                        # search opts and to the verification inside ytsearch.
-                        matchtitle = upperescape(eps['title'])
-                        # Opt-in via strict_parts. When it is off (the default)
-                        # a "Part N" upload may satisfy an episode Sonarr models
-                        # as whole — taking part 1 flips hasFile and the rest is
-                        # never fetched, so the episode looks complete and is a
-                        # fragment. With it on, only an episode whose own title
-                        # names a part may match a part. Off by default because
-                        # turning it on makes affected episodes show as missing
-                        # until they are split in Sonarr.
-                        rules = MatchRules(
-                            site_regex=ser.get('site_regex'),
-                            require=ser.get('site_require'),
-                            allow_parts=parts_allowed(
-                                eps['title'], ser.get('strict_parts')),
-                        )
-                        ydleps = self.ytdl_eps_search_opts(matchtitle, ser['playlistreverse'], cookies, username, password, rules)
-                        found, dlurl = self.ytsearch(ydleps, url, matchtitle, rules)
-                        if found:
-                            logger.info("    {}: Found - {}:".format(e + 1, eps['title']))
-                            season = self.format_season(eps['seasonNumber'])
-                            episode = self.format_episode(eps['episodeNumber'])
-                            ytdl_format_options = {
-                                'format': self.ytdl_format,
-                                'quiet': True,
-                                "merge_output_format": self.ytdl_merge_output_format,
-                                # Titles are interpolated into the *template*,
-                                # so yt-dlp reads any separator in them as a
-                                # real one and silently nests the download in a
-                                # directory. "James Kelch (Part 1/2)" landed in
-                                # ".../James Kelch (Part 1/2) WEBDL.mkv" — a
-                                # folder and a file. Only multi-part episodes
-                                # carry a slash, so this went unnoticed until
-                                # they were monitored.
-                                'outtmpl': '{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s'.format(
-                                    self.root_folder,
-                                    ser['path'],
-                                    season,
-                                    path_safe(ser['title']),
-                                    episode,
-                                    path_safe(eps['title'])
-                                ),
-                                'progress_hooks': [ytdl_hooks],
-                                'noplaylist': True,
-                                'forceipv4': True,
-                                'sleep_interval': 5,
-                                'max_sleep_interval': 30,
-                                'nocontinue': True,
-                                'nooverwrites': True,
-                                'throttled_rate': '100K',
-                                'concurrent_fragments': 5,
-                                'js_runtimes': JS_RUNTIMES,
-                            }
+        """Process wanted episodes grouped by series."""
+        if not series:
+            logger.info('Nothing to process')
+            return
 
-                            # Add sleep_interval_requests if configured
-                            if self.sleep_requests > 0:
-                                ytdl_format_options['sleep_interval_requests'] = self.sleep_requests
+        episodes_by_series = collections.defaultdict(list)
+        for episode in episodes:
+            episodes_by_series[episode['seriesId']].append(episode)
 
-                            ytdl_format_options = self.appendcookie(ytdl_format_options, cookies)
-                            ytdl_format_options = self.appendcredentials(ytdl_format_options, username, password)
-
-                            if 'format' in ser:
-                                ytdl_format_options = self.customformat(ytdl_format_options, ser['format'])
-                            if 'subtitles' in ser:
-                                if ser['subtitles']:
-                                    postprocessors = []
-                                    postprocessors.append({
-                                        'key': 'FFmpegSubtitlesConvertor',
-                                        'format': 'srt',
-                                    })
-                                    postprocessors.append({
-                                        'key': 'FFmpegEmbedSubtitle',
-                                    })
-                                    # filterseries() seeds this to a Python bool (False)
-                                    # before optionally overriding with the user's YAML
-                                    # string, so handle both shapes.
-                                    autosubs_raw = ser['subtitles_autogenerated']
-                                    autosubs = autosubs_raw if isinstance(autosubs_raw, bool) else autosubs_raw.lower() in ['true', 't', 'y', 'yes']
-                                    ytdl_format_options.update({
-                                        'writesubtitles': True,
-                                        'writeautomaticsub': autosubs,
-                                        'subtitleslangs': ser['subtitles_languages'],
-                                        'postprocessors': postprocessors,
-                                    })
-
-                            if self.debug is True:
-                                ytdl_format_options.update({
-                                    'quiet': False,
-                                    'logger': YoutubeDLLogger(),
-                                    'progress_hooks': [ytdl_hooks_debug],
-                                })
-                                logger.debug('yt-dlp opts configured for downloading')
-                            try:
-                                with yt_dlp.YoutubeDL(ytdl_format_options) as ydl:
-                                     ydl.download([dlurl])
-                                self.rescanseries(ser['id'])
-                                logger.info("      Downloaded - {}".format(eps['title']))
-                                # Reset backoff on successful download
-                                if self.rate_limit_count > 0:
-                                    logger.info("      Rate limit recovered - resetting backoff counter")
-                                    self.rate_limit_count = 0
-                                    self.current_backoff = self.rate_limit_sleep
-                                # Add delay between downloads if configured
-                                if self.download_delay > 0:
-                                    logger.debug("      Waiting {} seconds before next download".format(self.download_delay))
-                                    time.sleep(self.download_delay)
-                            # NOT "as e": that is the enumerate index of the
-                            # episode, used by every log line in this block.
-                            # Shadowing it made "e + 1" a TypeError, which
-                            # escaped main() and restart-looped the container
-                            # the moment any download failed — and because the
-                            # rate-limit branch logs before it sleeps, the
-                            # exponential backoff below could never run.
-                            except Exception as err:
-                                error_msg = str(err)
-                                # Check if this is a rate limit error
-                                if 'rate-limited' in error_msg.lower() or 'rate limit' in error_msg.lower() or 'try again later' in error_msg.lower():
-                                    self.rate_limit_count += 1
-
-                                    # Calculate backoff with exponential increase if enabled
-                                    if self.backoff_enabled and self.rate_limit_count > 1:
-                                        self.current_backoff = min(
-                                            int(self.rate_limit_sleep * (self.backoff_multiplier ** (self.rate_limit_count - 1))),
-                                            self.backoff_max
-                                        )
-                                        logger.error("      Failed - entry %d - RATE LIMITED (attempt %d)", e + 1, self.rate_limit_count)
-                                        logger.warning("      Exponential backoff: Sleeping for {} seconds ({}m {}s)...".format(
-                                            self.current_backoff,
-                                            self.current_backoff // 60,
-                                            self.current_backoff % 60
-                                        ))
-                                    else:
-                                        self.current_backoff = self.rate_limit_sleep
-                                        logger.error("      Failed - entry %d - RATE LIMITED", e + 1)
-                                        logger.warning("      YouTube rate limit detected. Sleeping for {} seconds...".format(self.current_backoff))
-
-                                    time.sleep(self.current_backoff)
-                                    logger.info("      Resuming downloads after rate limit cooldown")
-                                else:
-                                    logger.error("      Failed - entry %d - download error", e + 1)
-                        else:
-                            logger.info("    {}: Missing - {}:".format(e + 1, eps['title']))
-        else:
-            logger.info("Nothing to process")
+        logger.info('Processing Wanted Downloads')
+        for current_series in series:
+            wanted = episodes_by_series.get(current_series['id'], [])
+            if not wanted:
+                continue
+            logger.info('  %s:', current_series['title'])
+            for number, episode in enumerate(wanted, start=1):
+                if self.download_episode(current_series, episode, number):
+                    return
 
     def set_scan_interval(self, interval):
         global SCANINTERVAL
@@ -1075,15 +1043,20 @@ class StreamHarvester(object):
         return
 
 
-def main():
-    client = StreamHarvester()
+def main(playlist_cache=None):
+    """Run one scan of the configured series."""
+    client = StreamHarvester(playlist_cache)
     series = client.filterseries()
-    episodes = client.getseriesepisodes(series)
-    client.download(series, episodes)
+    client.start_scan(series)
+    try:
+        episodes = client.getseriesepisodes(series)
+        client.download(series, episodes)
+    finally:
+        client.playlist_cache.end_scan()
     logger.info('Waiting...')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     if os.geteuid() == 0:
         logger.warning(
             'Container is running as root (uid 0). A future release will '
@@ -1093,8 +1066,10 @@ if __name__ == "__main__":
             '<logs-path> on the host. See the wiki Upgrading guide for details.'
         )
     logger.info('Initial run')
-    main()
-    schedule.every(int(SCANINTERVAL)).minutes.do(main)
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    with closing(PlaylistCache()) as playlist_cache:
+        main(playlist_cache)
+        job = schedule.every(int(SCANINTERVAL)).minutes
+        job.do(main, playlist_cache)
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
