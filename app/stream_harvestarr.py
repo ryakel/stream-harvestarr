@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 
 import requests
 import schedule
+import yaml
 import yt_dlp
 from pathutils import DEFAULT_ROOT_FOLDER, normalize_root_folder
 from playlists import PlaylistCache, entry_url, is_single_video, video_search_url
@@ -1089,10 +1090,13 @@ def main(playlist_cache=None, job=None):
     """Run one scan of the configured series."""
     try:
         client = StreamHarvester(playlist_cache)
-    except (SystemExit, KeyError, TypeError, ValueError) as error:
+    except (SystemExit, KeyError, TypeError, ValueError, OSError, yaml.YAMLError) as error:
         if job is None:
             raise
-        logger.error('Skipping scheduled scan because configuration is invalid: %s', error)
+        logger.error(
+            'Skipping scheduled scan because configuration is invalid: %s',
+            redact_sensitive(str(error)),
+        )
         return
     if job is not None:
         job.interval = int(SCANINTERVAL)

@@ -106,6 +106,19 @@ class RuntimeConfigTests(unittest.TestCase):
             job.run()
         self.assertEqual(self.clients, [])
 
+    def test_scheduled_scan_survives_malformed_config(self):
+        scheduler = app.schedule.Scheduler()
+        job = scheduler.every(60).minutes
+        job.do(app.main, self.cache, job=job)
+        with patch.object(app, 'checkconfig', side_effect=app.yaml.YAMLError('malformed')):
+            job.run()
+        self.assertEqual(self.clients, [])
+
+    def test_initial_run_still_raises_malformed_config(self):
+        with patch.object(app, 'checkconfig', side_effect=app.yaml.YAMLError('malformed')):
+            with self.assertRaises(app.yaml.YAMLError):
+                app.main(self.cache)
+
     def test_scan_interval_rejects_scheduler_overflow(self):
         with self.assertRaisesRegex(ValueError, 'too large'):
             app.StreamHarvester.set_scan_interval(object.__new__(app.StreamHarvester), 10**20)
