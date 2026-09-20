@@ -15,7 +15,7 @@ os.makedirs(os.path.join(APP_DIR, '..', 'logs'), exist_ok=True)
 sys.argv = sys.argv[:1]
 
 import stream_harvestarr  # noqa: E402
-from playlists import video_playlist_url
+from playlists import is_youtube_url, video_playlist_url
 
 
 class FakeYoutubeDL(object):
@@ -37,7 +37,7 @@ class FakeYoutubeDL(object):
         type(self).urls.append(url)
         self.opts['process'] = process
         result = type(self).results.pop(0)
-        if result is not None and 'youtube.com' in url:
+        if result is not None and is_youtube_url(url):
             result.setdefault('extractor_key', 'YoutubeTab')
         return result
 
