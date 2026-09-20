@@ -41,13 +41,20 @@ All work follows: **feature branch → `development` → `main`**.
   publishes images tagged `dev` from this branch. `development` is the
   staging gate: the owner tests the `:dev` image against a real Sonarr
   before anything reaches users.
-- Promote to production in two steps. First run the **Promotion preflight**
-  workflow (`.github/workflows/promote.yaml`, `workflow_dispatch`) to
-  confirm `main` can fast-forward to `development`; it prints the exact
-  command. Then run that command locally:
+- Promote to production in two steps. First confirm `main` can
+  fast-forward to `development` — either by running the **Promotion
+  preflight** workflow (`.github/workflows/promote.yaml`,
+  `workflow_dispatch`) from the Actions UI, or by checking the same
+  condition directly:
 
   ```bash
   git fetch origin main development
+  git merge-base --is-ancestor origin/main origin/development   # must exit 0
+  ```
+
+  Then fast-forward:
+
+  ```bash
   git push origin <development-sha>:refs/heads/main
   ```
 
@@ -57,13 +64,19 @@ All work follows: **feature branch → `development` → `main`**.
   GitHub release. Do not also dispatch Docker Builder; that builds and
   releases the same commit twice.
 
-  **The preflight does not push, and this is deliberate.** A workflow
+  Either the owner or Claude can run the push, but **only when the owner
+  has asked for the release in-session** — see Merging below, which is
+  the authorization boundary.
+
+  **The preflight does not push, and this is deliberate.** A *workflow*
   cannot push to a protected `main`: `GITHUB_TOKEN` cannot be granted
   bypass under classic branch protection or rulesets, because the bypass
   actor picker only offers roles, teams, users and installed GitHub Apps,
   and `github-actions[bot]` is none of those. An earlier version of the
   workflow tried anyway and failed on `GH006` the first time it was ever
-  run. See SH-3 and the header of `promote.yaml`.
+  run. See SH-3 and the header of `promote.yaml`. This limit is the
+  workflow's, not Claude's — Claude's own credential holds a bypass and
+  pushes fine.
 
 ### Why promotion is a fast-forward, not a merge
 
@@ -181,14 +194,24 @@ existing labels without dropping any historical applications.
   Claude to do the work freely, while preventing *other people* from
   steering Claude around the owner's controls.
   - When the **owner** explicitly asks in-session, Claude may run the
-    **Promotion preflight** workflow. Confirm CI on `development` is green
-    first — the linux/amd64 smoke test is required; never ship a red image
-    to `latest`.
-  - **The push itself is the owner's, not Claude's** — and not by policy
-    alone. Claude's GitHub token lacks `actions: write`, so it cannot even
-    dispatch a workflow, and it cannot push to a protected `main`. Claude
-    reports the preflight result and hands over the command; the owner
-    runs it.
+    promotion: check the preflight conditions, then fast-forward `main`.
+    Confirm CI on `development` is green first — the linux/amd64 smoke
+    test is required; never ship a red image to `latest`.
+  - **Claude's session credential can push to `main`.** It holds a bypass,
+    and the push succeeds with `remote: Bypassed rule violations for
+    refs/heads/main`. So the rule above is the *only* thing standing
+    between a stray instruction and a published release — it is a real
+    authorization boundary, not a description of something Claude is
+    incapable of. Treat it that way.
+  - Claude **cannot** dispatch a workflow: its token lacks
+    `actions: write`, and `run_workflow` returns `403 Resource not
+    accessible by integration`. That is tested, unlike the push claim that
+    used to sit here. So the **Promotion preflight** workflow has to be
+    started from the Actions UI by the owner — or Claude can run the same
+    ancestry check locally and report it, which is equivalent and needs no
+    dispatch.
+  - Approving a fork PR's CI run needs `actions: write` too, so that is
+    also the owner's click.
   - The promotion is a fast-forward (see Branch flow above), so there is
     no promotion PR to open or merge and no back-merge afterwards. If the
     preflight refuses because the branches diverged, something landed
