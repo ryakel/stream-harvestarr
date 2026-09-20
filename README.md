@@ -25,6 +25,45 @@ Please update your image and update your config.yml. :warning:
 
 ## Documentation
 
+### Playlist scans and download recovery
+
+Sources are extracted once per scan and stored in temporary SQLite snapshots
+containing titles and URLs. Full sources retain their last complete snapshot if
+a refresh fails; the log distinguishes that fallback from a failure with no
+snapshot available. Snapshots require temporary disk space and do not survive a
+restart. Full enumeration still needs to fetch every page.
+
+YouTube tabs stream through upstream yt-dlp's public unprocessed-result API into
+SQLite. There is no custom extractor or private method override. Normal yt-dlp
+playlist processing retains all video metadata, even with `lazy_playlist`;
+the tab path avoids that allocation. Other extractors retain normal processing.
+SQLite uses a small page cache, while temporary disk use grows with the source.
+yt-dlp still owns its page buffers and continuation bookkeeping; this is not a
+claim of constant memory inside the upstream extractor.
+
+Channel searches are opt-in: set `channel_search: True` on a series or shared
+service to try 20 channel-search results, then all search results, before the
+configured source. Search stages use YouTube's relevance order, regardless of
+`playlistreverse`. This can select a different upload when several titles match,
+and rankings can change over time. Leave the option off to preserve the configured
+source's ordering. Use `regex.require` for channels carrying multiple shows and
+`strict_parts` to reject partial uploads for whole episodes. Search snapshots are
+closed after each lookup, so their open databases do not grow with the backlog.
+
+A subtitle-download failure retries once without subtitle options and subtitle
+postprocessors. Conversion, embedding, filesystem, and unrelated download errors
+do not trigger that retry. A successful fallback can leave a video without
+subtitles. Three consecutive video HTTP 403 errors stop the entire scan until
+the next scheduled run. A successful download or a non-403 download error resets
+the counter; episodes without a match do not. Each new scan starts at zero.
+
+Playlist extraction fails closed when yt-dlp reports incomplete YouTube data, so
+a partial continuation cannot replace a previously complete snapshot. Failed
+refreshes keep the last complete snapshot and are logged for diagnosis.
+
+Only playlist snapshots are shared between scans; removed sources and unused
+credential variants are released.
+
 **For detailed documentation, configuration guides, and troubleshooting, visit the [Stream Harvestarr Wiki](https://github.com/ryakel/stream-harvestarr/wiki)**
 
 Key documentation sections:

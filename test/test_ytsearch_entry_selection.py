@@ -68,6 +68,9 @@ JAMIE_FOY = {
 class FakeYoutubeDL(object):
     """Minimal yt_dlp.YoutubeDL stand-in usable as a context manager."""
 
+    def process_ie_result(self, result, download=False):
+        return result
+
     def __init__(self, result=None):
         self.result = result
 
@@ -77,7 +80,9 @@ class FakeYoutubeDL(object):
     def __exit__(self, *exc_info):
         return False
 
-    def extract_info(self, url, download=False):
+
+    def extract_info(self, url, download=False, process=True, ie_key=None):
+        """Return the configured fake extraction result."""
         return self.result
 
 
@@ -85,37 +90,42 @@ class YtsearchTestCase(unittest.TestCase):
 
     def setUp(self):
         self._real_ydl = stream_harvestarr.yt_dlp.YoutubeDL
+        self.client = object.__new__(stream_harvestarr.StreamHarvester)
+        self.client.playlist_cache = stream_harvestarr.PlaylistCache()
 
     def tearDown(self):
         stream_harvestarr.yt_dlp.YoutubeDL = self._real_ydl
 
     def ytsearch(self, result, episode_title=None):
+        """Return the configured test search result."""
         stream_harvestarr.yt_dlp.YoutubeDL = lambda opts: FakeYoutubeDL(result)
         opts = {'matchtitle': upperescape(episode_title)} if episode_title else {}
-        return stream_harvestarr.StreamHarvester.ytsearch(None, opts, SEARCH_URL)
+        return self.client.ytsearch(opts, SEARCH_URL)
 
 
 class TestCollectionEntriesRejected(YtsearchTestCase):
     """A playlist or channel is never an episode."""
 
     def test_unresolved_playlist_reference_is_skipped(self):
+        """Verify unresolved playlist reference is skipped."""
         result = {'entries': [PLAYLIST_ENTRY, BEN_KADOW]}
         self.assertEqual(
             self.ytsearch(result, 'Ben Kadow'),
-            (True, 'https://www.youtube.com/watch?v=YrmakZiZTOE'),
+            'https://www.youtube.com/watch?v=YrmakZiZTOE',
         )
 
     def test_resolved_playlist_is_skipped(self):
+        """Verify resolved playlist is skipped."""
         result = {'entries': [RESOLVED_PLAYLIST_ENTRY, BEN_KADOW]}
         self.assertEqual(
             self.ytsearch(result, 'Ben Kadow'),
-            (True, 'https://www.youtube.com/watch?v=YrmakZiZTOE'),
+            'https://www.youtube.com/watch?v=YrmakZiZTOE',
         )
 
     def test_playlist_alone_is_not_found(self):
         """The bug: nothing matched, so only the playlist was left."""
         result = {'entries': [PLAYLIST_ENTRY]}
-        self.assertEqual(self.ytsearch(result, 'Lizard King'), (False, ''))
+        self.assertIsNone(self.ytsearch(result, 'Lizard King'))
 
     def test_search_page_result_is_not_found(self):
         """The configured url resolving to itself is not an episode."""
@@ -124,16 +134,17 @@ class TestCollectionEntriesRejected(YtsearchTestCase):
             'title': 'VICE - Search',
             'webpage_url': 'https://www.youtube.com/@VICE/search?query=epicly+laterd',
         }
-        self.assertEqual(self.ytsearch(result, 'Lizard King'), (False, ''))
+        self.assertIsNone(self.ytsearch(result, 'Lizard King'))
 
     def test_channel_videos_tab_is_not_found(self):
+        """Verify channel videos tab is not found."""
         result = {'entries': [{
             '_type': 'url',
             'ie_key': 'YoutubeTab',
             'title': 'MILKY☆SUBWAY - Videos',
             'url': 'https://www.youtube.com/@milkygalacticuniverse/videos',
         }]}
-        self.assertEqual(self.ytsearch(result, 'MILKY☆SUBWAY'), (False, ''))
+        self.assertIsNone(self.ytsearch(result, 'MILKY☆SUBWAY'))
 
     def test_watch_url_carrying_a_list_param_is_kept(self):
         """A video inside a playlist is still a video."""
@@ -141,8 +152,8 @@ class TestCollectionEntriesRejected(YtsearchTestCase):
             'title': 'Ben Kadow: An American Original | Epicly Later’d',
             'webpage_url': 'https://www.youtube.com/watch?v=YrmakZiZTOE&list=PLDbSvEZka6GG',
         }]}
-        found, url = self.ytsearch(result, 'Ben Kadow')
-        self.assertTrue(found)
+        url = self.ytsearch(result, 'Ben Kadow')
+        self.assertIsNotNone(url)
         self.assertIn('watch?v=YrmakZiZTOE', url)
 
 
@@ -154,24 +165,25 @@ class TestTitleReverified(YtsearchTestCase):
         result = {'entries': [JAMIE_FOY, BEN_KADOW]}
         self.assertEqual(
             self.ytsearch(result, 'Ben Kadow'),
-            (True, 'https://www.youtube.com/watch?v=YrmakZiZTOE'),
+            'https://www.youtube.com/watch?v=YrmakZiZTOE',
         )
 
     def test_no_entry_matches_is_not_found(self):
+        """Verify no entry matches is not found."""
         result = {'entries': [JAMIE_FOY]}
-        self.assertEqual(self.ytsearch(result, 'Ben Kadow'), (False, ''))
+        self.assertIsNone(self.ytsearch(result, 'Ben Kadow'))
 
     def test_untitled_entry_is_rejected(self):
         """Unverifiable is treated as not a match: missing beats wrong."""
         result = {'entries': [{'webpage_url': 'https://youtu.be/mystery'}]}
-        self.assertEqual(self.ytsearch(result, 'Ben Kadow'), (False, ''))
+        self.assertIsNone(self.ytsearch(result, 'Ben Kadow'))
 
     def test_no_matchtitle_keeps_first_video(self):
         """Without a pattern there is nothing to verify against."""
         result = {'entries': [BEN_KADOW]}
         self.assertEqual(
             self.ytsearch(result),
-            (True, 'https://www.youtube.com/watch?v=YrmakZiZTOE'),
+            'https://www.youtube.com/watch?v=YrmakZiZTOE',
         )
 
 

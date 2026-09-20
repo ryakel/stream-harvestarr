@@ -47,6 +47,9 @@ FLAT_PLAYLIST = {
 
 
 class FakeYoutubeDL(object):
+    def process_ie_result(self, result, download=False):
+        return result
+
     def __init__(self, result=None):
         self.result = result
 
@@ -56,7 +59,9 @@ class FakeYoutubeDL(object):
     def __exit__(self, *exc_info):
         return False
 
-    def extract_info(self, url, download=False):
+
+    def extract_info(self, url, download=False, process=True, ie_key=None):
+        """Return the configured fake extraction result."""
         return self.result
 
 
@@ -74,56 +79,57 @@ class TestSearchRunsFlat(unittest.TestCase):
 
     def opts(self):
         return stream_harvestarr.StreamHarvester.ytdl_eps_search_opts(
-            _NoDebug(), upperescape('Ben Kadow'), False)
+            _NoDebug(), False)
 
     def test_extract_flat_is_in_playlist(self):
         """Not True — the configured url itself must still resolve."""
         self.assertEqual(self.opts()['extract_flat'], 'in_playlist')
 
-    def test_filter_still_installed(self):
-        """Flat entries carry titles, so culling still happens up front."""
-        self.assertTrue(callable(self.opts()['match_filter']))
-        self.assertIsNone(self.opts()['match_filter'](FLAT_VIDEO))
-        self.assertIsNotNone(self.opts()['match_filter'](
-            {'title': 'Jamie Foy', 'url': 'https://youtu.be/x'}))
+    def test_episode_filter_is_not_part_of_source_options(self):
+        """Episode matching happens against the shared cached candidates."""
+        self.assertNotIn('match_filter', self.opts())
 
 
 class TestFlatEntriesResolve(unittest.TestCase):
 
     def setUp(self):
         self._real_ydl = stream_harvestarr.yt_dlp.YoutubeDL
+        self.client = object.__new__(stream_harvestarr.StreamHarvester)
+        self.client.playlist_cache = stream_harvestarr.PlaylistCache()
 
     def tearDown(self):
         stream_harvestarr.yt_dlp.YoutubeDL = self._real_ydl
 
     def ytsearch(self, result, episode='Ben Kadow'):
+        """Return the configured test search result."""
         stream_harvestarr.yt_dlp.YoutubeDL = lambda opts: FakeYoutubeDL(result)
         pattern = upperescape(episode)
-        return stream_harvestarr.StreamHarvester.ytsearch(
-            None, {}, SEARCH_URL, pattern)
+        return self.client.ytsearch({}, SEARCH_URL, pattern)
 
     def test_flat_video_yields_the_watch_url(self):
         """No webpage_url on a flat entry; the url fallback carries it."""
         self.assertNotIn('webpage_url', FLAT_VIDEO)
         self.assertEqual(
             self.ytsearch({'entries': [FLAT_VIDEO]}),
-            (True, 'https://www.youtube.com/watch?v=YrmakZiZTOE'))
+            'https://www.youtube.com/watch?v=YrmakZiZTOE')
 
     def test_flat_playlist_is_still_refused(self):
+        """Verify flat playlist is still refused."""
         self.assertFalse(stream_harvestarr.is_single_video(FLAT_PLAYLIST))
         self.assertEqual(
             self.ytsearch({'entries': [FLAT_PLAYLIST]}, "Epicly Later'd"),
-            (False, ''))
+            None)
 
     def test_playlist_before_video_still_picks_the_video(self):
+        """Verify playlist before video still picks the video."""
         self.assertEqual(
             self.ytsearch({'entries': [FLAT_PLAYLIST, FLAT_VIDEO]}),
-            (True, 'https://www.youtube.com/watch?v=YrmakZiZTOE'))
+            'https://www.youtube.com/watch?v=YrmakZiZTOE')
 
     def test_flat_url_is_a_watch_url_not_a_stream(self):
         """download() re-extracts this, so it must be the canonical page."""
-        found, url = self.ytsearch({'entries': [FLAT_VIDEO]})
-        self.assertTrue(found)
+        url = self.ytsearch({'entries': [FLAT_VIDEO]})
+        self.assertIsNotNone(url)
         self.assertIn('youtube.com/watch?v=', url)
         self.assertNotIn('googlevideo.com', url)
 
