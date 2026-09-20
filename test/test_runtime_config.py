@@ -106,6 +106,11 @@ class RuntimeConfigTests(unittest.TestCase):
             job.run()
         self.assertEqual(self.clients, [])
 
+    def test_scan_interval_rejects_scheduler_overflow(self):
+        with self.assertRaisesRegex(ValueError, 'too large'):
+            app.StreamHarvester.set_scan_interval(object.__new__(app.StreamHarvester), 10**20)
+        self.assertEqual(app.SCANINTERVAL, 60)
+
 
 class WantedEpisodeTests(unittest.TestCase):
     def test_filtering_is_ordered_and_does_not_mutate_api_results(self):

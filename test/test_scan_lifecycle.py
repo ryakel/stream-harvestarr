@@ -50,11 +50,12 @@ class ScanLifecycleTests(unittest.TestCase):
         client.handle_download_error = Mock(return_value=False)
 
         series = SERIES[0]
-        result = client.download_episode(series, EPISODE, 1)
+        with self.assertLogs(stream_harvestarr.logger, level='WARNING'):
+            result = client.download_episode(series, EPISODE, 1)
 
         self.assertFalse(result)
         client.rescanseries.assert_called_once_with(series['id'])
-        client.handle_download_error.assert_called_once()
+        client.handle_download_error.assert_not_called()
 
 
 if __name__ == '__main__':

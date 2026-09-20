@@ -8,7 +8,7 @@ import time
 import urllib.parse
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import requests
 import schedule
@@ -1027,17 +1027,22 @@ class StreamHarvester:
             self.download_video(url, options, episode['title'])
         except Exception as error:
             return self.handle_download_error(error, episode_number)
+        rescan_succeeded = True
         try:
             self.rescanseries(series['id'])
         except Exception as error:
-            if self.handle_download_error(error, episode_number):
-                return True
+            rescan_succeeded = False
+            logger.warning(
+                '      Sonarr rescan failed after download: %s',
+                redact_sensitive(str(error)),
+            )
         logger.info('      Downloaded - %s', episode['title'])
-        self.video_403_count = 0
-        if getattr(self, 'rate_limit_count', 0) > 0:
-            logger.info('      Rate limit recovered - resetting backoff counter')
-            self.rate_limit_count = 0
-            self.current_backoff = self.rate_limit_sleep
+        if rescan_succeeded:
+            self.video_403_count = 0
+            if getattr(self, 'rate_limit_count', 0) > 0:
+                logger.info('      Rate limit recovered - resetting backoff counter')
+                self.rate_limit_count = 0
+                self.current_backoff = self.rate_limit_sleep
         if getattr(self, 'download_delay', 0) > 0:
             logger.debug('      Waiting %s seconds before next download', self.download_delay)
             time.sleep(self.download_delay)
@@ -1068,6 +1073,10 @@ class StreamHarvester:
         interval = int(interval)
         if interval <= 0:
             raise ValueError('scan_interval must be positive')
+        try:
+            datetime.now() + timedelta(minutes=interval)
+        except OverflowError as error:
+            raise ValueError('scan_interval is too large') from error
         if interval != SCANINTERVAL:
             SCANINTERVAL = interval
             logger.info('Scan interval set to every {} minutes by config.yml'.format(interval))
