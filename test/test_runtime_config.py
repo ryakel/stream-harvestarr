@@ -110,9 +110,13 @@ class RuntimeConfigTests(unittest.TestCase):
         scheduler = app.schedule.Scheduler()
         job = scheduler.every(60).minutes
         job.do(app.main, self.cache, job=job)
-        with patch.object(app, 'checkconfig', side_effect=app.yaml.YAMLError('malformed')):
-            job.run()
+        with patch.object(
+            app, 'checkconfig', side_effect=app.yaml.YAMLError('password=SYNTHETIC_PASSWORD')
+        ):
+            with self.assertLogs(app.logger, level='ERROR') as logs:
+                job.run()
         self.assertEqual(self.clients, [])
+        self.assertNotIn('SYNTHETIC_PASSWORD', '\n'.join(logs.output))
 
     def test_initial_run_still_raises_malformed_config(self):
         with patch.object(app, 'checkconfig', side_effect=app.yaml.YAMLError('malformed')):

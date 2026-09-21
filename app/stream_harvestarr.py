@@ -1028,22 +1028,19 @@ class StreamHarvester:
             self.download_video(url, options, episode['title'])
         except Exception as error:
             return self.handle_download_error(error, episode_number)
-        rescan_succeeded = True
         try:
             self.rescanseries(series['id'])
         except Exception as error:
-            rescan_succeeded = False
             logger.warning(
                 '      Sonarr rescan failed after download: %s',
                 redact_sensitive(str(error)),
             )
         logger.info('      Downloaded - %s', episode['title'])
-        if rescan_succeeded:
-            self.video_403_count = 0
-            if getattr(self, 'rate_limit_count', 0) > 0:
-                logger.info('      Rate limit recovered - resetting backoff counter')
-                self.rate_limit_count = 0
-                self.current_backoff = self.rate_limit_sleep
+        self.video_403_count = 0
+        if getattr(self, 'rate_limit_count', 0) > 0:
+            logger.info('      Rate limit recovered - resetting backoff counter')
+            self.rate_limit_count = 0
+            self.current_backoff = self.rate_limit_sleep
         if getattr(self, 'download_delay', 0) > 0:
             logger.debug('      Waiting %s seconds before next download', self.download_delay)
             time.sleep(self.download_delay)
@@ -1093,9 +1090,17 @@ def main(playlist_cache=None, job=None):
     except (SystemExit, KeyError, TypeError, ValueError, OSError, yaml.YAMLError) as error:
         if job is None:
             raise
+        if isinstance(error, yaml.YAMLError):
+            detail = getattr(error, 'problem', None) or 'invalid YAML'
+            mark = getattr(error, 'problem_mark', None)
+            if mark is not None:
+                detail = f'{detail} at line {mark.line + 1}, column {mark.column + 1}'
+        else:
+            detail = redact_sensitive(str(error))
         logger.error(
-            'Skipping scheduled scan because configuration is invalid: %s',
-            redact_sensitive(str(error)),
+            'Skipping scheduled scan because configuration is invalid (%s): %s',
+            type(error).__name__,
+            detail,
         )
         return
     if job is not None:

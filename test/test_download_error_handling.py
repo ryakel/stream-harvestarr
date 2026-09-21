@@ -137,8 +137,8 @@ class DownloadErrorTestCase(unittest.TestCase):
         with self.assertLogs(stream_harvestarr.logger, level='WARNING'):
             c.download(SERIES, EPISODES * 2)
         self.assertEqual(c.download_video.call_count, 2)
-        self.assertEqual(c.rate_limit_count, 2)
-        self.assertEqual(c.video_403_count, 2)
+        self.assertEqual(c.rate_limit_count, 0)
+        self.assertEqual(c.video_403_count, 0)
         self.assertEqual(self.slept, [5, 5])
 
     def test_malformed_sonarr_response_does_not_undo_download(self):
