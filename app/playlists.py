@@ -219,7 +219,7 @@ class PlaylistCache:
             with yt_dlp.YoutubeDL(options) as ydl:
                 entries = PlaylistCache._entries(ydl, url, options.get('playlistend'))
                 # Publish only after the entire result has been consumed.
-                return PlaylistSnapshot(PlaylistCache._snapshot_entries(ydl, entries))
+                return PlaylistSnapshot(PlaylistCache._snapshot_entries(entries))
         # yt-dlp exposes several extractor-specific failure types. Keep this
         # boundary broad so one failed refresh cannot destroy a good snapshot.
         except Exception as error:  # noqa: BLE001
@@ -233,25 +233,13 @@ class PlaylistCache:
             return None
 
     @staticmethod
-    def _snapshot_entries(ydl, entries):
+    def _snapshot_entries(entries):
         """Yield the small metadata subset needed for local matching."""
         for entry in entries:
             url = entry_url(entry) if isinstance(entry, dict) else None
             if not url or not is_single_video(entry):
                 continue
-            title = entry.get('title')
-            if title is None and entry.get('_type') == 'url':
-                try:
-                    resolved = ydl.extract_info(url, download=False)
-                except Exception as error:  # noqa: BLE001
-                    if is_rate_limit_error(error):
-                        raise
-                    logger.debug('Could not resolve playlist entry metadata: %s', error)
-                else:
-                    if not isinstance(resolved, dict) or not is_single_video(resolved):
-                        continue
-                    title = resolved.get('title')
-            yield title, url
+            yield entry.get('title'), url
 
     @staticmethod
     def _entries(ydl, url: str, limit: int | None) -> Iterator[dict]:

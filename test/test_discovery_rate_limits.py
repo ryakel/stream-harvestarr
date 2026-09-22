@@ -73,14 +73,17 @@ class DiscoveryRateLimitTests(unittest.TestCase):
             list(cache.entries[key]),
             [{'title': 'Episode', 'url': 'https://youtu.be/abcdefghijk'}],
         )
-    def test_untitled_entry_rate_limit_reaches_refresh_handler(self):
+
+    def test_untitled_entry_is_not_extracted_individually(self):
         source = 'https://www.patreon.com/creator'
         entry = {
             '_type': 'url',
             'url': 'https://www.patreon.com/posts/episode-123',
         }
 
-        class RateLimitedEntryYoutubeDL:
+        class UntitledEntryYoutubeDL:
+            calls = []
+
             def __enter__(self):
                 return self
 
@@ -88,17 +91,23 @@ class DiscoveryRateLimitTests(unittest.TestCase):
                 return False
 
             def extract_info(self, url, **kwargs):
+                self.calls.append(url)
                 if url == source:
                     return {'_type': 'playlist', 'entries': [entry]}
-                raise app.yt_dlp.utils.DownloadError('HTTP Error 429: Too Many Requests')
+                raise AssertionError(f'unexpected per-entry extraction: {url}')
 
             def process_ie_result(self, result, download=False):
                 return result
 
-        with patch.object(app.yt_dlp, 'YoutubeDL', return_value=RateLimitedEntryYoutubeDL()):
-            with self.assertRaises(PlaylistRateLimitError):
-                app.PlaylistCache._extract({}, source)
+        with patch.object(app.yt_dlp, 'YoutubeDL', return_value=UntitledEntryYoutubeDL()):
+            snapshot = app.PlaylistCache._extract({}, source)
+        self.addCleanup(snapshot.close)
 
+        self.assertEqual(UntitledEntryYoutubeDL.calls, [source])
+        self.assertEqual(
+            list(snapshot),
+            [{'title': None, 'url': 'https://www.patreon.com/posts/episode-123'}],
+        )
 
 if __name__ == '__main__':
     unittest.main()
