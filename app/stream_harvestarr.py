@@ -117,6 +117,11 @@ def path_safe(name):
     return name.replace('/', '⧸').replace('\\', '⧹')
 
 
+def escape_template_literal(value):
+    """Escape percent signs in text interpolated into a yt-dlp template."""
+    return value.replace('%', '%%') if value else value
+
+
 # The per-series rules that decide whether a candidate title is the episode.
 @dataclass(frozen=True)
 class MatchRules:
@@ -832,11 +837,11 @@ class StreamHarvester:
             'merge_output_format': self.ytdl_merge_output_format,
             'outtmpl': ('{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s').format(
                 self.root_folder,
-                series['path'],
+                escape_template_literal(series['path']),
                 season,
-                path_safe(series['title']),
+                escape_template_literal(path_safe(series['title'])),
                 number,
-                path_safe(episode['title']),
+                escape_template_literal(path_safe(episode['title'])),
             ),
             'progress_hooks': [ytdl_hooks],
             'noplaylist': True,
