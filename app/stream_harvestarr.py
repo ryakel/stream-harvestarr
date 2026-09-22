@@ -256,6 +256,16 @@ def compile_require(pattern, series_title):
         ) from e
 
 
+def validate_regex_replacement(match, replacement, series_title):
+    """Validate a Sonarr title rewrite before a scan can use it."""
+    try:
+        re.compile(match).sub(replacement, '')
+    except (re.error, IndexError, KeyError, TypeError) as e:
+        raise ValueError(
+            f'Series "{series_title}" has an invalid Sonarr regex replacement: {e}'
+        ) from e
+
+
 class StreamHarvester:
     def __init__(self, playlist_cache=None):
         """Set up app with config file settings"""
@@ -616,6 +626,11 @@ class StreamHarvester:
                     if 'regex' in wnt:
                         regex = wnt['regex']
                         if 'sonarr' in regex:
+                            validate_regex_replacement(
+                                regex['sonarr']['match'],
+                                regex['sonarr']['replace'],
+                                ser['title'],
+                            )
                             ser['sonarr_regex_match'] = regex['sonarr']['match']
                             ser['sonarr_regex_replace'] = regex['sonarr']['replace']
                         if 'site' in regex:

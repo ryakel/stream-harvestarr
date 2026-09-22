@@ -38,6 +38,13 @@ class SeriesConfigValueTests(unittest.TestCase):
         self.client.series[0]['playlistreverse'] = 'false'
         self.assertFalse(self.client.filterseries()[0]['playlistreverse'])
 
+    def test_invalid_sonarr_replacement_rejects_configuration(self):
+        self.client.series[0]['regex'] = {
+            'sonarr': {'match': '(.*)', 'replace': r'\g<missing>'},
+        }
+        with self.assertRaises(ValueError):
+            self.client.filterseries()
+
 
 if __name__ == '__main__':
     unittest.main()
