@@ -784,6 +784,8 @@ class StreamHarvester:
             'extract_flat': 'in_playlist',
             'js_runtimes': JS_RUNTIMES,
         }
+        if getattr(self, 'sleep_requests', 0) > 0:
+            ytdlopts['sleep_interval_requests'] = self.sleep_requests
         if self.debug is True:
             ytdlopts.update(
                 {
