@@ -266,6 +266,20 @@ def validate_regex_replacement(match, replacement, series_title):
         ) from e
 
 
+def url_origin(url):
+    """Return the normalized HTTP origin for a URL, or None if invalid."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            return None
+        port = parsed.port
+    except ValueError:
+        return None
+    if port is None:
+        port = 443 if parsed.scheme == 'https' else 80
+    return parsed.scheme, parsed.hostname.lower(), port
+
+
 class StreamHarvester:
     def __init__(self, playlist_cache=None):
         """Set up app with config file settings"""
@@ -574,24 +588,24 @@ class StreamHarvester:
             logger.debug('  URL inherited from service: {}'.format(svc_url))
         elif not series_url.startswith('http'):
             # Relative path - join onto service base url
-            base = svc_url.rstrip('/')
-            path = series_url.lstrip('/')
-            merged['url'] = '{}/{}'.format(base, path)
+            merged['url'] = urllib.parse.urljoin(
+                svc_url.rstrip('/') + '/', series_url.lstrip('/')
+            )
             logger.debug('  URL joined from service: {}'.format(merged['url']))
         else:
-            # Absolute URL provided — verify it shares the same domain as the service
+            # Absolute URL provided — verify it shares the same origin as the service
             # to prevent credentials/cookies inherited from the service being sent to
             # a different site than intended.
-            svc_domain = urllib.parse.urlparse(svc_url).netloc
-            series_domain = urllib.parse.urlparse(series_url).netloc
+            svc_origin = url_origin(svc_url)
+            series_origin = url_origin(series_url)
 
-            if svc_domain and series_domain != svc_domain:
+            if svc_origin != series_origin:
                 logger.warning(
-                    '  Series "{}" uses service "{}" but URL domain "{}" does not match '
-                    'service domain "{}". Credentials and cookies will NOT be inherited '
+                    '  Series "{}" uses service "{}" but URL origin does not match '
+                    'service origin. Credentials and cookies will NOT be inherited '
                     'to avoid sending them to an unintended site. '
                     'Use a relative URL or move credentials to the series directly.'.format(
-                        wnt.get('title', '?'), service_name, series_domain, svc_domain
+                        wnt.get('title', '?'), service_name
                     )
                 )
                 # Strip inherited credentials and cookies from merged config
@@ -602,7 +616,7 @@ class StreamHarvester:
                             '  Removed inherited {} due to domain mismatch'.format(cred_key)
                         )
             else:
-                logger.debug('  Absolute URL domain matches service domain - credentials retained')
+                logger.debug('  Absolute URL origin matches service origin - credentials retained')
 
         return merged
 
