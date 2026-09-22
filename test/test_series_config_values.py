@@ -45,6 +45,18 @@ class SeriesConfigValueTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.client.filterseries()
 
+    def test_duplicate_configured_sources_keep_independent_series_data(self):
+        self.client.series.append({
+            'title': 'Show',
+            'url': 'https://www.youtube.com/@SecondShow',
+        })
+        matched = self.client.filterseries()
+        self.assertEqual(
+            [series['url'] for series in matched],
+            ['https://www.youtube.com/@Show', 'https://www.youtube.com/@SecondShow'],
+        )
+        self.assertIsNot(matched[0], matched[1])
+
 
 if __name__ == '__main__':
     unittest.main()

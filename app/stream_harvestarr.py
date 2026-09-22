@@ -610,9 +610,10 @@ class StreamHarvester:
         """Return all series in Sonarr that are to be downloaded by yt-dlp"""
         series = self.get_series()
         matched = []
-        for ser in series[:]:
+        for sonarr_series in series:
             for wnt in self.series:
-                if normalize_title(wnt['title']) == normalize_title(ser['title']):
+                if normalize_title(wnt['title']) == normalize_title(sonarr_series['title']):
+                    ser = dict(sonarr_series)
                     # Merge service config before reading any keys (series overrides service)
                     wnt = self.merge_service_config(wnt)
                     # Set default values
