@@ -79,6 +79,10 @@ class TestCompileSiteRegex(unittest.TestCase):
         """A bad pattern must not take down the scan."""
         self.assertIsNone(stream_harvestarr.compile_site_regex('([unclosed', '', 'Some Series'))
 
+    def test_invalid_replacement_is_rejected_during_config_loading(self):
+        with self.assertRaisesRegex(ValueError, 'invalid regex.site replacement'):
+            stream_harvestarr.compile_site_regex('(episode)', r'\g<missing>', 'Some Series')
+
 
 class TestEpisodeTitleMatches(unittest.TestCase):
 

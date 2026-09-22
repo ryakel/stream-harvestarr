@@ -226,7 +226,7 @@ def compile_site_regex(match, replace, series_title):
     if match is None:
         return None
     try:
-        return (re.compile(match), replace if replace is not None else '')
+        pattern = re.compile(match)
     except re.error as e:
         logger.warning(
             'Series "{}" has an invalid regex.site match pattern ({}) - ignoring'.format(
@@ -234,6 +234,14 @@ def compile_site_regex(match, replace, series_title):
             )
         )
         return None
+    replacement = replace if replace is not None else ''
+    try:
+        pattern.sub(replacement, '')
+    except (re.error, IndexError, KeyError, TypeError) as e:
+        raise ValueError(
+            f'Series "{series_title}" has an invalid regex.site replacement: {e}'
+        ) from e
+    return pattern, replacement
 
 
 def compile_require(pattern, series_title):
