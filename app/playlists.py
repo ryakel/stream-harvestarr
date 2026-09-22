@@ -34,6 +34,7 @@ COLLECTION_URL_RE = re.compile(
     r'(?:/playlist\b|[?&]list=|/@[^/]+/|/channel/|/user/|/c/|/results\b|/search\b)', re.IGNORECASE
 )
 YOUTUBE_HOSTS = {'youtube.com', 'www.youtube.com', 'm.youtube.com'}
+TIKTOK_HOSTS = {'tiktok.com', 'www.tiktok.com', 'm.tiktok.com'}
 
 
 class PlaylistRateLimitError(RuntimeError):
@@ -49,6 +50,12 @@ def is_single_video(entry):
     url = entry.get('webpage_url') or entry.get('url') or ''
     if VIDEO_URL_RE.search(url):
         return True
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        parsed = None
+    if parsed and parsed.hostname in TIKTOK_HOSTS and re.search(r'/video/\d+', parsed.path):
+        return True
     return not COLLECTION_URL_RE.search(url)
 
 
@@ -63,12 +70,9 @@ def video_playlist_url(playlist):
         return playlist
     if parsed.hostname not in YOUTUBE_HOSTS:
         return playlist
-    if parsed.query or parsed.fragment:
-        return playlist
-
     path = parsed.path.rstrip('/')
     if re.fullmatch(r'/(?:@[^/]+|channel/[^/]+|user/[^/]+|c/[^/]+)', path):
-        return parsed._replace(path=path + '/videos').geturl()
+        return parsed._replace(path=path + '/videos', query='', fragment='').geturl()
     return playlist
 
 
@@ -215,11 +219,7 @@ class PlaylistCache:
             with yt_dlp.YoutubeDL(options) as ydl:
                 entries = PlaylistCache._entries(ydl, url, options.get('playlistend'))
                 # Publish only after the entire result has been consumed.
-                return PlaylistSnapshot(
-                    (entry.get('title'), entry_url(entry))
-                    for entry in entries
-                    if isinstance(entry, dict) and entry_url(entry) and is_single_video(entry)
-                )
+                return PlaylistSnapshot(PlaylistCache._snapshot_entries(ydl, entries))
         # yt-dlp exposes several extractor-specific failure types. Keep this
         # boundary broad so one failed refresh cannot destroy a good snapshot.
         except Exception as error:  # noqa: BLE001
@@ -231,6 +231,23 @@ class PlaylistCache:
                 redact_sensitive(str(error)),
             )
             return None
+
+    @staticmethod
+    def _snapshot_entries(ydl, entries):
+        """Yield the small metadata subset needed for local matching."""
+        for entry in entries:
+            url = entry_url(entry) if isinstance(entry, dict) else None
+            if not url or not is_single_video(entry):
+                continue
+            title = entry.get('title')
+            if title is None and entry.get('_type') == 'url':
+                try:
+                    resolved = ydl.extract_info(url, download=False)
+                except Exception as error:  # noqa: BLE001
+                    logger.debug('Could not resolve playlist entry metadata: %s', error)
+                else:
+                    title = resolved.get('title') if isinstance(resolved, dict) else None
+            yield title, url
 
     @staticmethod
     def _entries(ydl, url: str, limit: int | None) -> Iterator[dict]:
