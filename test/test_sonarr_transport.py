@@ -40,12 +40,12 @@ class SonarrTransportTests(unittest.TestCase):
         with patch.object(app.requests, 'post', return_value=post_response) as post:
             self.assertIs(client.request_put('http://sonarr/api', jsondata={}), post_response)
         get.assert_called_once_with(
-            'http://sonarr/api?apikey=key', timeout=app.SONARR_TIMEOUT
+            'http://sonarr/api', params={'apikey': 'key'}, timeout=app.SONARR_TIMEOUT
         )
         post.assert_called_once_with(
             'http://sonarr/api',
             headers={'Content-Type': 'application/json'},
-            params=(('apikey', 'key'),),
+            params={'apikey': 'key'},
             json={},
             timeout=app.SONARR_TIMEOUT,
         )
@@ -55,12 +55,36 @@ class SonarrTransportTests(unittest.TestCase):
         client.api_key = 'key'
         response = Mock()
         response.raise_for_status.side_effect = app.requests.HTTPError('503 Server Error')
-
         with patch.object(app.requests, 'get', return_value=response):
             with self.assertRaises(app.requests.HTTPError):
                 client.request_get('http://sonarr/api')
-
         response.raise_for_status.assert_called_once_with()
+
+    def test_existing_query_parameters_are_not_corrupted(self):
+        response = Mock()
+        client = object.__new__(app.StreamHarvester)
+        client.api_key = 'key'
+        with patch.object(app.requests, 'get', return_value=response) as get:
+            client.request_get('http://sonarr/api/episodefile?seriesId=7')
+        get.assert_called_once_with(
+            'http://sonarr/api/episodefile?seriesId=7',
+            params={'apikey': 'key'},
+            timeout=app.SONARR_TIMEOUT,
+        )
+
+    def test_put_accepts_additional_query_parameters(self):
+        response = Mock()
+        client = object.__new__(app.StreamHarvester)
+        client.api_key = 'key'
+        with patch.object(app.requests, 'post', return_value=response) as post:
+            client.request_put('http://sonarr/api', {'wait': 'true'}, {'name': 'scan'})
+        post.assert_called_once_with(
+            'http://sonarr/api',
+            headers={'Content-Type': 'application/json'},
+            params={'apikey': 'key', 'wait': 'true'},
+            json={'name': 'scan'},
+            timeout=app.SONARR_TIMEOUT,
+        )
 
     def test_basedir_is_joined_once(self):
         with patch.object(app, 'checkconfig', return_value=copy.deepcopy(CONFIG)), \

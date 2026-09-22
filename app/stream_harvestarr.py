@@ -491,8 +491,7 @@ class StreamHarvester:
         if params is not None:
             logger.debug('GET request with %d additional params', len(params))
             args.update(params)
-        url = '{}?{}'.format(url, urllib.parse.urlencode(args))
-        response = requests.get(url, timeout=SONARR_TIMEOUT)
+        response = requests.get(url, params=args, timeout=SONARR_TIMEOUT)
         response.raise_for_status()
         return response
 
@@ -502,13 +501,14 @@ class StreamHarvester:
         headers = {
             'Content-Type': 'application/json',
         }
-        args = (('apikey', self.api_key),)
+        args = {'apikey': self.api_key}
         if params is not None:
             args.update(params)
             logger.debug('PUT request params keys: {}'.format(list(params.keys())))
         res = requests.post(
             url, headers=headers, params=args, json=jsondata, timeout=SONARR_TIMEOUT
         )
+        res.raise_for_status()
         return res
 
     def rescanseries(self, series_id):
