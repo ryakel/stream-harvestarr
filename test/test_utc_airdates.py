@@ -16,6 +16,21 @@ import stream_harvestarr as app  # noqa: E402
 
 
 class UtcAirdateTests(unittest.TestCase):
+    def test_missing_utc_airdate_is_treated_as_available(self):
+        client = object.__new__(app.StreamHarvester)
+        client.get_episodes_by_series_id = Mock(return_value=[{
+            'seriesId': 1,
+            'title': 'TBA episode',
+            'monitored': True,
+            'hasFile': False,
+            'airDateUtc': None,
+        }])
+
+        self.assertEqual(
+            [episode['title'] for episode in client.getseriesepisodes([{'id': 1, 'title': 'Show'}])],
+            ['TBA episode'],
+        )
+
     def test_future_utc_episode_is_not_downloaded_from_ahead_timezone(self):
         current = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
 

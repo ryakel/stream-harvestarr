@@ -663,7 +663,7 @@ class StreamHarvester:
                 if not eps['monitored'] or eps['hasFile']:
                     continue
                 eps_date = now
-                if 'airDateUtc' in eps:
+                if eps.get('airDateUtc'):
                     eps_date = datetime.strptime(eps['airDateUtc'], date_format).replace(
                         tzinfo=timezone.utc
                     )
