@@ -561,7 +561,7 @@ class StreamHarvester:
                     wnt.get('title', '?'), service_name
                 )
             )
-            return wnt
+            return None
 
         svc = self.services[service_name]
         logger.debug(
@@ -630,6 +630,8 @@ class StreamHarvester:
                     ser = dict(sonarr_series)
                     # Merge service config before reading any keys (series overrides service)
                     wnt = self.merge_service_config(wnt)
+                    if wnt is None:
+                        continue
                     # Set default values
                     ser['subtitles'] = False
                     ser['playlistreverse'] = True

@@ -46,6 +46,21 @@ class ServiceOriginSecurityTests(unittest.TestCase):
 
         self.assertEqual(merged['url'], 'https://example.test/members/channel/123')
 
+    def test_unknown_service_skips_only_its_series(self):
+        self.client.get_series = lambda: [
+            {'id': 1, 'title': 'Unknown', 'path': '/tv/Unknown', 'monitored': True},
+            {'id': 2, 'title': 'Known', 'path': '/tv/Known', 'monitored': True},
+        ]
+        self.client.series = [
+            {'title': 'Unknown', 'service': 'missing', 'url': 'channel/123'},
+            {'title': 'Known', 'service': 'members', 'url': 'channel/456'},
+        ]
+
+        matched = self.client.filterseries()
+
+        self.assertEqual([series['title'] for series in matched], ['Known'])
+        self.assertEqual(matched[0]['url'], 'https://example.test/members/channel/456')
+
 
 if __name__ == '__main__':
     unittest.main()
