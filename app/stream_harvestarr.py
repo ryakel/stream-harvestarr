@@ -8,7 +8,7 @@ import time
 import urllib.parse
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import requests
 import schedule
@@ -649,7 +649,7 @@ class StreamHarvester:
 
     def getseriesepisodes(self, series):
         """Return monitored episodes without an existing file for each series."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         needed = []
         active_series = []
         for ser in series:
@@ -659,7 +659,9 @@ class StreamHarvester:
                     continue
                 eps_date = now
                 if 'airDateUtc' in eps:
-                    eps_date = datetime.strptime(eps['airDateUtc'], date_format)
+                    eps_date = datetime.strptime(eps['airDateUtc'], date_format).replace(
+                        tzinfo=timezone.utc
+                    )
                     if 'offset' in ser:
                         eps_date = offsethandler(eps_date, ser['offset'])
                 if eps_date > now:
