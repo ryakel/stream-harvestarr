@@ -595,37 +595,46 @@ class StreamHarvester:
             # No series url at all - use service url directly
             merged['url'] = svc_url
             logger.debug('  URL inherited from service: {}'.format(svc_url))
-        elif not series_url.startswith('http'):
-            # Relative path - join onto service base url
-            merged['url'] = urllib.parse.urljoin(
-                svc_url.rstrip('/') + '/', series_url.lstrip('/')
-            )
-            logger.debug('  URL joined from service: {}'.format(merged['url']))
         else:
-            # Absolute URL provided — verify it shares the same origin as the service
-            # to prevent credentials/cookies inherited from the service being sent to
-            # a different site than intended.
-            svc_origin = url_origin(svc_url)
-            series_origin = url_origin(series_url)
+            try:
+                parsed_series_url = urllib.parse.urlsplit(series_url)
+            except ValueError:
+                parsed_series_url = None
 
-            if svc_origin != series_origin:
-                logger.warning(
-                    '  Series "{}" uses service "{}" but URL origin does not match '
-                    'service origin. Credentials and cookies will NOT be inherited '
-                    'to avoid sending them to an unintended site. '
-                    'Use a relative URL or move credentials to the series directly.'.format(
-                        wnt.get('title', '?'), service_name
-                    )
+            if parsed_series_url is not None and not (
+                parsed_series_url.scheme or parsed_series_url.netloc
+            ):
+                # Join only genuinely relative paths; urljoin also accepts absolute URLs.
+                merged['url'] = urllib.parse.urljoin(
+                    svc_url.rstrip('/') + '/', series_url.lstrip('/')
                 )
-                # Strip inherited credentials and cookies from merged config
-                for cred_key in ('username', 'password', 'cookies_file'):
-                    if cred_key in merged and cred_key not in wnt:
-                        del merged[cred_key]
-                        logger.debug(
-                            '  Removed inherited {} due to domain mismatch'.format(cred_key)
-                        )
+                logger.debug('  URL joined from service: {}'.format(merged['url']))
             else:
-                logger.debug('  Absolute URL origin matches service origin - credentials retained')
+                # Absolute URLs may inherit secrets only when both origins are valid
+                # HTTP(S) origins and match exactly.
+                svc_origin = url_origin(svc_url)
+                series_origin = url_origin(series_url)
+
+                if svc_origin != series_origin:
+                    logger.warning(
+                        '  Series "{}" uses service "{}" but URL origin does not match '
+                        'service origin. Credentials and cookies will NOT be inherited '
+                        'to avoid sending them to an unintended site. '
+                        'Use a relative URL or move credentials to the series directly.'.format(
+                            wnt.get('title', '?'), service_name
+                        )
+                    )
+                    # Strip inherited credentials and cookies from merged config
+                    for cred_key in ('username', 'password', 'cookies_file'):
+                        if cred_key in merged and cred_key not in wnt:
+                            del merged[cred_key]
+                            logger.debug(
+                                '  Removed inherited {} due to origin mismatch'.format(cred_key)
+                            )
+                else:
+                    logger.debug(
+                        '  Absolute URL origin matches service origin - credentials retained'
+                    )
 
         return merged
 

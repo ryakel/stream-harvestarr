@@ -39,6 +39,22 @@ class ServiceOriginSecurityTests(unittest.TestCase):
         self.assertNotIn('password', merged)
         self.assertNotIn('cookies_file', merged)
 
+    def test_absolute_urls_with_other_schemes_do_not_inherit_credentials(self):
+        for url in (
+            'HTTPS://attacker.example/steal',
+            'ftp://attacker.example/steal',
+            '//attacker.example/steal',
+        ):
+            with self.subTest(url=url):
+                merged = self.client.merge_service_config(
+                    {'title': 'Show', 'service': 'members', 'url': url}
+                )
+
+                self.assertEqual(merged['url'], url)
+                self.assertNotIn('username', merged)
+                self.assertNotIn('password', merged)
+                self.assertNotIn('cookies_file', merged)
+
     def test_relative_url_preserves_service_path(self):
         merged = self.client.merge_service_config(
             {'title': 'Show', 'service': 'members', 'url': 'channel/123'}
