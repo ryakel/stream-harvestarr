@@ -244,6 +244,8 @@ class PlaylistCache:
                 try:
                     resolved = ydl.extract_info(url, download=False)
                 except Exception as error:  # noqa: BLE001
+                    if is_rate_limit_error(error):
+                        raise
                     logger.debug('Could not resolve playlist entry metadata: %s', error)
                 else:
                     title = resolved.get('title') if isinstance(resolved, dict) else None
