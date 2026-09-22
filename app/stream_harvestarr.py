@@ -1109,13 +1109,23 @@ def main(playlist_cache=None, job=None):
         return
     if job is not None:
         job.interval = int(SCANINTERVAL)
-    series = client.filterseries()
-    client.start_scan(series)
     try:
-        episodes = client.getseriesepisodes(series)
-        client.download(series, episodes)
-    finally:
-        client.playlist_cache.end_scan()
+        series = client.filterseries()
+        client.start_scan(series)
+        try:
+            episodes = client.getseriesepisodes(series)
+            client.download(series, episodes)
+        finally:
+            client.playlist_cache.end_scan()
+    except (KeyError, TypeError, ValueError, OverflowError, re.error) as error:
+        if job is None:
+            raise
+        logger.error(
+            'Skipping scheduled scan because configuration is invalid (%s): %s',
+            type(error).__name__,
+            redact_sensitive(str(error)),
+        )
+        return
     logger.info('Waiting...')
 
 
