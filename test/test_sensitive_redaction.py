@@ -19,6 +19,25 @@ class SensitiveRedactionTests(unittest.TestCase):
         self.assertIn('api_key=***REDACTED***', result)
         self.assertIn('other=value', result)
 
+    def test_sensitive_query_parameters_are_redacted(self):
+        result = redact_sensitive(
+            'https://site.example/?access_token=SECRET&client_id=public'
+        )
+
+        self.assertNotIn('SECRET', result)
+        self.assertIn('access_token=***REDACTED***', result)
+        self.assertIn('client_id=public', result)
+
+    def test_encoded_secret_keys_and_url_userinfo_are_redacted(self):
+        result = redact_sensitive(
+            'https://alice:SECRET@site.example/?access%5Ftoken=TOKEN'
+        )
+
+        self.assertNotIn('SECRET', result)
+        self.assertNotIn('TOKEN', result)
+        self.assertIn('***REDACTED***@site.example', result)
+        self.assertIn('access%5Ftoken=***REDACTED***', result)
+
 
 if __name__ == '__main__':
     unittest.main()

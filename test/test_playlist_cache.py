@@ -136,6 +136,18 @@ class PlaylistCacheTestCase(unittest.TestCase):
             else:
                 self.assertEqual(list(result), [])
 
+    def test_extraction_failure_does_not_log_url_query_secrets(self):
+        url = 'https://example.test/feed?access_token=TOPSECRET'
+        with patch.object(
+            FakeYoutubeDL,
+            'extract_info',
+            side_effect=ValueError(f'failed to fetch {url}'),
+        ):
+            with self.assertLogs(stream_harvestarr.logger, level='ERROR') as logs:
+                self.cache.get({}, url)
+
+        self.assertNotIn('TOPSECRET', '\n'.join(logs.output))
+
     def test_playlist_reverse_is_applied_without_duplicate_extraction(self):
         """Verify playlist reverse is applied without duplicate extraction."""
         playlist = 'https://www.youtube.com/playlist?list=TEST'

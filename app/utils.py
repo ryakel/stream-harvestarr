@@ -3,6 +3,7 @@ import os
 import sys
 import datetime
 import shutil
+import urllib.parse
 import yaml
 import logging
 from logging.handlers import RotatingFileHandler
@@ -27,6 +28,8 @@ SENSITIVE_KEY_SUBSTRINGS = (
 # redaction at all, because users stop trusting the redacted output.
 _APIKEY_QUERY_RE = re.compile(r'(api[_-]?key=)[^&\s]+', re.IGNORECASE)
 _APIKEY_JSON_RE = re.compile(r'(api[_-]?key["\']?\s*:\s*["\']?)[^&\s,}"\']+', re.IGNORECASE)
+_QUERY_PARAMETER_RE = re.compile(r'([?&])([^=&#\s]+)=([^&#\s]*)')
+_URL_USERINFO_RE = re.compile(r'(?<=://)[^/@\s]+@')
 RATE_LIMIT_MARKERS = (
     'http error 429',
     '429 too many requests',
@@ -56,8 +59,17 @@ def redact_sensitive(data):
     if isinstance(data, str):
         data = _APIKEY_QUERY_RE.sub(r'\1***REDACTED***', data)
         data = _APIKEY_JSON_RE.sub(r'\1***REDACTED***', data)
+        data = _QUERY_PARAMETER_RE.sub(_redact_query_parameter, data)
+        data = _URL_USERINFO_RE.sub('***REDACTED***@', data)
         return data
     return data
+
+
+def _redact_query_parameter(match):
+    key = urllib.parse.unquote_plus(match.group(2)).lower()
+    if any(sensitive in key for sensitive in SENSITIVE_KEY_SUBSTRINGS):
+        return f'{match.group(1)}{match.group(2)}=***REDACTED***'
+    return match.group(0)
 
 
 def is_rate_limit_error(error):
