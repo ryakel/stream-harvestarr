@@ -27,6 +27,30 @@ class ScheduledConfigRecoveryTests(unittest.TestCase):
                         app.main(Mock(), job=Mock())
                 client.start_scan.assert_not_called()
 
+    def test_scheduled_scan_survives_sonarr_request_failure(self):
+        client = Mock()
+        client.filterseries.return_value = []
+        client.getseriesepisodes.side_effect = app.requests.ConnectionError('Sonarr offline')
+        job = Mock()
+
+        with patch.object(app, 'StreamHarvester', return_value=client):
+            with self.assertLogs(app.logger, level=logging.WARNING) as logs:
+                app.main(Mock(), job=job)
+
+        self.assertIn('Sonarr request failed', '\n'.join(logs.output))
+        client.playlist_cache.end_scan.assert_called_once_with()
+
+    def test_scheduled_scan_survives_series_request_failure(self):
+        client = Mock()
+        client.filterseries.side_effect = app.requests.Timeout('Sonarr timed out')
+
+        with patch.object(app, 'StreamHarvester', return_value=client):
+            with self.assertLogs(app.logger, level=logging.WARNING) as logs:
+                app.main(Mock(), job=Mock())
+
+        self.assertIn('Sonarr request failed', '\n'.join(logs.output))
+        client.start_scan.assert_not_called()
+
 
 if __name__ == '__main__':
     unittest.main()

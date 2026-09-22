@@ -1126,6 +1126,14 @@ def main(playlist_cache=None, job=None):
             client.download(series, episodes)
         finally:
             client.playlist_cache.end_scan()
+    except requests.RequestException as error:
+        if job is None:
+            raise
+        logger.warning(
+            'Skipping scheduled scan because Sonarr request failed: %s',
+            redact_sensitive(str(error)),
+        )
+        return
     except (KeyError, TypeError, ValueError, OverflowError, re.error) as error:
         if job is None:
             raise
