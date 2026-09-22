@@ -836,7 +836,7 @@ class StreamHarvester:
             'quiet': True,
             'merge_output_format': self.ytdl_merge_output_format,
             'outtmpl': ('{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s').format(
-                self.root_folder,
+                escape_template_literal(self.root_folder),
                 escape_template_literal(series['path']),
                 season,
                 escape_template_literal(path_safe(series['title'])),

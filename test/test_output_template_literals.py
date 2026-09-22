@@ -42,6 +42,17 @@ class OutputTemplateLiteralTests(unittest.TestCase):
             filename = ydl.prepare_filename({'title': 'WRONG', 'id': 'x', 'ext': 'mkv'})
         self.assertIn('100%(title)s WEBDL', filename)
 
+    def test_percent_in_root_folder_is_literal(self):
+        client = self.make_client()
+        client.root_folder = '/mnt/100%(title)s'
+        options = client.download_options(
+            {'title': 'Show', 'path': '/tv/Show'},
+            {'title': 'Episode', 'seasonNumber': 1, 'episodeNumber': 1},
+        )
+        with app.yt_dlp.YoutubeDL(options) as ydl:
+            filename = ydl.prepare_filename({'title': 'WRONG', 'id': 'x', 'ext': 'mkv'})
+        self.assertTrue(filename.startswith('/mnt/100%(title)s/'), filename)
+
 
 if __name__ == '__main__':
     unittest.main()
