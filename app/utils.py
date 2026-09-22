@@ -2,6 +2,7 @@ import re
 import os
 import sys
 import datetime
+import shutil
 import yaml
 import logging
 from logging.handlers import RotatingFileHandler
@@ -147,7 +148,7 @@ def checkconfig():
     if not config_file_exists:
         logger.critical('Configuration file not found.')  # print('Configuration file not found.')
         if not config_template_exists:
-            os.system('cp /app/config.yml.template ' + config_template)
+            shutil.copyfile('/app/config.yml.template', config_template)
         logger.critical("Create a config.yml using config.yml.template as an example.")  # sys.exit("Create a config.yml using config.yml.template as an example.")
         sys.exit()
     else:
