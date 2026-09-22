@@ -136,6 +136,23 @@ class RuntimeConfigTests(unittest.TestCase):
             client = app.StreamHarvester()
         self.assertEqual(client.backoff_multiplier, 2.0)
 
+    def test_negative_durations_use_safe_defaults(self):
+        cfg = copy.deepcopy(CONFIG)
+        cfg['streamharvestarr'].update(
+            download_delay='-1',
+            sleep_requests='-1',
+            rate_limit_sleep='-1',
+            backoff_max='-1',
+        )
+        with patch.object(app, 'checkconfig', return_value=cfg), \
+             patch.object(app.StreamHarvester, 'get_naming_config', return_value={}):
+            client = app.StreamHarvester()
+
+        self.assertEqual(client.download_delay, 0)
+        self.assertEqual(client.sleep_requests, 0)
+        self.assertEqual(client.rate_limit_sleep, 900)
+        self.assertEqual(client.backoff_max, 3600)
+
 
 class WantedEpisodeTests(unittest.TestCase):
     def test_filtering_is_ordered_and_does_not_mutate_api_results(self):
