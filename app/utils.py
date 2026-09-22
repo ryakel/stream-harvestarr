@@ -26,6 +26,13 @@ SENSITIVE_KEY_SUBSTRINGS = (
 # redaction at all, because users stop trusting the redacted output.
 _APIKEY_QUERY_RE = re.compile(r'(apikey=)[^&\s]+', re.IGNORECASE)
 _APIKEY_JSON_RE = re.compile(r'(api[_-]?key["\']?\s*:\s*["\']?)[^&\s,}"\']+', re.IGNORECASE)
+RATE_LIMIT_MARKERS = (
+    'http error 429',
+    '429 too many requests',
+    'rate-limited',
+    'rate limit',
+    'try again later',
+)
 
 
 def redact_sensitive(data):
@@ -51,6 +58,12 @@ def redact_sensitive(data):
         data = _APIKEY_JSON_RE.sub(r'\1***REDACTED***', data)
         return data
     return data
+
+
+def is_rate_limit_error(error):
+    """Return whether an error indicates source-side rate limiting."""
+    message = str(error).lower()
+    return any(marker in message for marker in RATE_LIMIT_MARKERS)
 
 
 def _normalize_quotes(string):

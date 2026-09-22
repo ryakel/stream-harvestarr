@@ -9,7 +9,7 @@ from itertools import islice
 
 import yt_dlp
 from playlist_snapshot import PlaylistSnapshot
-from utils import redact_sensitive
+from utils import is_rate_limit_error, redact_sensitive
 
 logger = logging.getLogger('stream_harvestarr')
 
@@ -34,6 +34,10 @@ COLLECTION_URL_RE = re.compile(
     r'(?:/playlist\b|[?&]list=|/@[^/]+/|/channel/|/user/|/c/|/results\b|/search\b)', re.IGNORECASE
 )
 YOUTUBE_HOSTS = {'youtube.com', 'www.youtube.com', 'm.youtube.com'}
+
+
+class PlaylistRateLimitError(RuntimeError):
+    """A playlist refresh was rejected by the source's rate limiter."""
 
 
 def is_single_video(entry):
@@ -138,7 +142,11 @@ class PlaylistCache:
         key = self._key(ydl_opts, playlist)
         if key not in self.refreshed:
             self.refreshed.add(key)
-            fresh_entries = self._extract(ydl_opts, playlist)
+            try:
+                fresh_entries = self._extract(ydl_opts, playlist)
+            except PlaylistRateLimitError:
+                self.refreshed.discard(key)
+                raise
             if fresh_entries is not None:
                 previous = self.entries.get(key)
                 self.entries[key] = fresh_entries
@@ -210,6 +218,8 @@ class PlaylistCache:
         # yt-dlp exposes several extractor-specific failure types. Keep this
         # boundary broad so one failed refresh cannot destroy a good snapshot.
         except Exception as error:  # noqa: BLE001
+            if is_rate_limit_error(error):
+                raise PlaylistRateLimitError(str(error)) from error
             logger.error(
                 'Playlist extraction failed for %s: %s',
                 redact_sensitive(playlist),

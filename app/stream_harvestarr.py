@@ -19,6 +19,7 @@ from playlists import PlaylistCache, entry_url, is_single_video, video_search_ur
 from utils import (
     YoutubeDLLogger,
     checkconfig,
+    is_rate_limit_error,
     normalize_title,
     offsethandler,
     redact_sensitive,
@@ -968,17 +969,7 @@ class StreamHarvester:
     @staticmethod
     def is_rate_limit_error(error):
         """Return whether an error indicates rate limiting."""
-        message = str(error).lower()
-        return any(
-            marker in message
-            for marker in (
-                'http error 429',
-                '429 too many requests',
-                'rate-limited',
-                'rate limit',
-                'try again later',
-            )
-        )
+        return is_rate_limit_error(error)
 
     def handle_download_error(self, error, episode_number):
         """Log a download error and return whether the scan should stop."""
@@ -1024,7 +1015,10 @@ class StreamHarvester:
 
     def download_episode(self, series, episode, episode_number):
         """Find and download one episode, returning whether the scan should stop."""
-        url = self.find_episode(series, episode)
+        try:
+            url = self.find_episode(series, episode)
+        except Exception as error:
+            return self.handle_download_error(error, episode_number)
         if url is None:
             logger.info('    %s: Missing - %s:', episode_number, episode['title'])
             return False
