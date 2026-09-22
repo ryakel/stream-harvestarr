@@ -1003,7 +1003,7 @@ class StreamHarvester:
 
         if self.is_rate_limit_error(error):
             self.rate_limit_count += 1
-            self.current_backoff = self.rate_limit_sleep
+            self.current_backoff = min(self.rate_limit_sleep, self.backoff_max)
             if self.backoff_enabled and self.rate_limit_count > 1:
                 try:
                     self.current_backoff = min(
