@@ -31,7 +31,6 @@ RATE_LIMIT_MARKERS = (
     '429 too many requests',
     'rate-limited',
     'rate limit',
-    'try again later',
 )
 
 

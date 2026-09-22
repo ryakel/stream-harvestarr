@@ -172,16 +172,22 @@ class DownloadErrorTestCase(unittest.TestCase):
         self.assertEqual(self.slept, [c.backoff_max])
 
     def test_rate_limit_error_does_not_escape(self):
-        self.client("This content isn't available, try again later").download(
+        self.client('HTTP Error 429: Too Many Requests').download(
             SERIES, list(EPISODES)
         )
 
     def test_rate_limit_actually_sleeps(self):
         """The crash happened before the sleep, so backoff never ran."""
-        c = self.client("This content isn't available, try again later")
+        c = self.client('HTTP Error 429: Too Many Requests')
         c.download(SERIES, list(EPISODES))
         self.assertEqual(self.slept, [1800])
         self.assertEqual(c.rate_limit_count, 1)
+
+    def test_unavailable_content_is_not_rate_limited(self):
+        c = self.client("This content isn't available, try again later")
+        c.download(SERIES, list(EPISODES))
+        self.assertEqual(self.slept, [])
+        self.assertEqual(c.rate_limit_count, 0)
 
     def test_second_rate_limit_backs_off_further(self):
         """Verify repeated rate limits increase the backoff delay."""
