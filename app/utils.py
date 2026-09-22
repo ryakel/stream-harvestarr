@@ -29,7 +29,8 @@ SENSITIVE_KEY_SUBSTRINGS = (
 _APIKEY_QUERY_RE = re.compile(r'(api[_-]?key=)[^&\s]+', re.IGNORECASE)
 _APIKEY_JSON_RE = re.compile(r'(api[_-]?key["\']?\s*:\s*["\']?)[^&\s,}"\']+', re.IGNORECASE)
 _QUERY_PARAMETER_RE = re.compile(r'([?&])([^=&#\s]+)=([^&#\s]*)')
-_URL_USERINFO_RE = re.compile(r'(?<=://)[^/@\s]+@')
+_URL_USERINFO_RE = re.compile(r'(?<=://)[^/?#\s]*@')
+_LOG_FIELD_RE = re.compile(r"(?P<quote>['\"]?)(?P<key>[\w-]+)(?P=quote)\s*[:=]")
 RATE_LIMIT_MARKERS = (
     'http error 429',
     '429 too many requests',
@@ -70,6 +71,15 @@ def _redact_query_parameter(match):
     if any(sensitive in key for sensitive in SENSITIVE_KEY_SUBSTRINGS):
         return f'{match.group(1)}{match.group(2)}=***REDACTED***'
     return match.group(0)
+
+
+def _safe_ytdlp_message(message):
+    """Omit serialized yt-dlp options that may contain credentials."""
+    for match in _LOG_FIELD_RE.finditer(str(message)):
+        key = match.group('key').lower()
+        if any(sensitive in key for sensitive in SENSITIVE_KEY_SUBSTRINGS):
+            return '[yt-dlp log message omitted: may contain credentials]'
+    return redact_sensitive(message)
 
 
 def is_rate_limit_error(error):
@@ -205,24 +215,24 @@ class YoutubeDLLogger(object):
 
     yt-dlp's verbose output can echo the full opts dict (including
     cookiefile paths and any username/password) and URLs containing
-    Sonarr-style apikey query params. Route every message through
-    redact_sensitive so debug logs are safe to share in bug reports.
+    Sonarr-style apikey query params. Omit messages that expose sensitive
+    option fields; redact other messages before logging them.
     """
 
     def __init__(self):
         self.logger = logging.getLogger('stream_harvestarr')
 
     def info(self, msg: str) -> None:
-        self.logger.info(redact_sensitive(msg))
+        self.logger.info(_safe_ytdlp_message(msg))
 
     def debug(self, msg: str) -> None:
-        self.logger.debug(redact_sensitive(msg))
+        self.logger.debug(_safe_ytdlp_message(msg))
 
     def warning(self, msg: str) -> None:
-        self.logger.info(redact_sensitive(msg))
+        self.logger.info(_safe_ytdlp_message(msg))
 
     def error(self, msg: str) -> None:
-        self.logger.error(redact_sensitive(msg))
+        self.logger.error(_safe_ytdlp_message(msg))
 
 
 def ytdl_hooks_debug(d):
