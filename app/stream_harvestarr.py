@@ -251,12 +251,9 @@ def compile_require(pattern, series_title):
     try:
         return re.compile(pattern, re.IGNORECASE)
     except re.error as e:
-        logger.warning(
-            'Series "{}" has an invalid regex.require pattern ({}) - ignoring'.format(
-                series_title, e
-            )
-        )
-        return None
+        raise ValueError(
+            f'Series "{series_title}" has an invalid regex.require pattern: {e}'
+        ) from e
 
 
 class StreamHarvester:

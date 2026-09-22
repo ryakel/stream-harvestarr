@@ -175,8 +175,9 @@ class TestCompileRequire(unittest.TestCase):
     def test_absent_is_none(self):
         self.assertIsNone(stream_harvestarr.compile_require(None, 'S'))
 
-    def test_invalid_pattern_is_ignored_not_raised(self):
-        self.assertIsNone(stream_harvestarr.compile_require('([unclosed', 'S'))
+    def test_invalid_pattern_is_rejected(self):
+        with self.assertRaises(ValueError):
+            stream_harvestarr.compile_require('([unclosed', 'S')
 
     def test_compiles_case_insensitive(self):
         self.assertTrue(stream_harvestarr.compile_require('epicly', 'S').search('EPICLY'))
@@ -197,8 +198,9 @@ class TestFilterseriesWiring(unittest.TestCase):
         ser = self.filterseries({'require': "Epicly Later"})
         self.assertTrue(ser['site_require'].search("x | Epicly Later'd"))
 
-    def test_invalid_require_stores_none(self):
-        self.assertIsNone(self.filterseries({'require': '([unclosed'})['site_require'])
+    def test_invalid_require_rejects_the_series_configuration(self):
+        with self.assertRaises(ValueError):
+            self.filterseries({'require': '([unclosed'})
 
     def test_absent_require_leaves_the_key_off(self):
         self.assertIsNone(self.filterseries(
