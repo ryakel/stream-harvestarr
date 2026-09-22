@@ -219,7 +219,7 @@ class DownloadErrorTestCase(unittest.TestCase):
         ScriptedYoutubeDL.instances = []
         ScriptedYoutubeDL.outcomes = [
             stream_harvestarr.yt_dlp.utils.DownloadError(
-                "ERROR: Unable to download video subtitles for 'en': HTTP Error 429"
+                "ERROR: Unable to download video subtitles for 'en': HTTP Error 404"
             ),
             None,
         ]
@@ -243,6 +243,22 @@ class DownloadErrorTestCase(unittest.TestCase):
         self.assertNotIn('writeautomaticsub', fallback)
         self.assertNotIn('subtitleslangs', fallback)
         self.assertEqual(fallback['postprocessors'], [{'key': 'Exec'}])
+
+    def test_subtitle_rate_limit_is_not_retried_without_subtitles(self):
+        c = self.client('unused')
+        error = stream_harvestarr.yt_dlp.utils.DownloadError(
+            "ERROR: Unable to download video subtitles for 'en': HTTP Error 429"
+        )
+        ScriptedYoutubeDL.instances = []
+        ScriptedYoutubeDL.outcomes = [error]
+        stream_harvestarr.yt_dlp.YoutubeDL = ScriptedYoutubeDL
+        options = {'writesubtitles': True, 'subtitleslangs': ['en']}
+
+        with self.assertRaises(stream_harvestarr.yt_dlp.utils.DownloadError) as raised:
+            c.download_video('https://youtu.be/x', options, 'Episode')
+
+        self.assertIs(raised.exception, error)
+        self.assertEqual(len(ScriptedYoutubeDL.instances), 1)
 
     def test_unrelated_subtitle_text_does_not_retry(self):
         """A title or postprocessor mentioning subtitles is not a transport failure."""

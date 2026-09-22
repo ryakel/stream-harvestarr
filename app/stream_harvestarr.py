@@ -961,6 +961,8 @@ class StreamHarvester:
             with yt_dlp.YoutubeDL(options) as ydl:
                 ydl.download([url])
         except yt_dlp.utils.DownloadError as error:
+            if self.is_rate_limit_error(error):
+                raise
             # yt-dlp wraps subtitle transport errors in a plain DownloadError;
             # there is no dedicated subtitle exception type. Fail closed if
             # its diagnostic changes, or subtitle downloading was not enabled.
