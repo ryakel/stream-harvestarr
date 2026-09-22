@@ -41,6 +41,7 @@ date_format = '%Y-%m-%dT%H:%M:%SZ'
 CONFIGFILE = os.environ['CONFIGPATH']
 CONFIGPATH = CONFIGFILE.replace('config.yml', '')
 SCANINTERVAL = 60
+SONARR_TIMEOUT = (10, 60)
 
 # yt-dlp needs a JavaScript runtime for YouTube extraction.  Prefer deno
 # (upstream default, installed on amd64/arm64 images) and fall back to
@@ -337,8 +338,9 @@ class StreamHarvester:
                 logger.debug('Sonarr api set to v4')
             if cfg['sonarr']['ssl'].lower() == 'true':
                 scheme = 'https'
-            if cfg['sonarr'].get('basedir', ''):
-                basedir = '/' + cfg['sonarr'].get('basedir', '')
+            configured_basedir = cfg['sonarr'].get('basedir', '').strip('/')
+            if configured_basedir:
+                basedir = '/' + configured_basedir
 
             self.base_url = '{0}://{1}:{2}{3}'.format(
                 scheme, cfg['sonarr']['host'], str(cfg['sonarr']['port']), basedir
@@ -471,7 +473,7 @@ class StreamHarvester:
             logger.debug('GET request with %d additional params', len(params))
             args.update(params)
         url = '{}?{}'.format(url, urllib.parse.urlencode(args))
-        res = requests.get(url)
+        res = requests.get(url, timeout=SONARR_TIMEOUT)
         return res
 
     def request_put(self, url, params=None, jsondata=None):
@@ -484,7 +486,9 @@ class StreamHarvester:
         if params is not None:
             args.update(params)
             logger.debug('PUT request params keys: {}'.format(list(params.keys())))
-        res = requests.post(url, headers=headers, params=args, json=jsondata)
+        res = requests.post(
+            url, headers=headers, params=args, json=jsondata, timeout=SONARR_TIMEOUT
+        )
         return res
 
     def rescanseries(self, series_id):
