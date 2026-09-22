@@ -248,7 +248,9 @@ class PlaylistCache:
                         raise
                     logger.debug('Could not resolve playlist entry metadata: %s', error)
                 else:
-                    title = resolved.get('title') if isinstance(resolved, dict) else None
+                    if not isinstance(resolved, dict) or not is_single_video(resolved):
+                        continue
+                    title = resolved.get('title')
             yield title, url
 
     @staticmethod

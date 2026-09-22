@@ -56,6 +56,38 @@ class PlaylistMatchingEdgeTests(unittest.TestCase):
         self.assertEqual(list(snapshot), [{'title': 'Episode', 'url': entry['url']}])
         snapshot.close()
 
+    def test_resolved_collection_entries_are_not_snapshot_as_videos(self):
+        source = 'https://www.patreon.com/creator'
+        entry = {
+            '_type': 'url',
+            'ie_key': 'Patreon',
+            'url': 'https://www.patreon.com/posts/episode-123',
+        }
+
+        class YoutubeDL:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return False
+
+            def extract_info(self, url, **kwargs):
+                if url == source:
+                    return {'_type': 'playlist', 'entries': [entry]}
+                return {
+                    '_type': 'playlist',
+                    'title': 'Episode',
+                    'entries': [{'title': 'Part 1', 'url': 'https://example.test/part-1'}],
+                }
+
+            def process_ie_result(self, result, download=False):
+                return result
+
+        with patch.object(app.yt_dlp, 'YoutubeDL', return_value=YoutubeDL()):
+            snapshot = app.PlaylistCache._extract({}, source)
+        self.assertEqual(list(snapshot), [])
+        snapshot.close()
+
 
 if __name__ == '__main__':
     unittest.main()
