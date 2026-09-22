@@ -25,7 +25,7 @@ SENSITIVE_KEY_SUBSTRINGS = (
 # (URLs, JSON-ish blobs). Keep these narrow on purpose — any pattern
 # broad enough to chew on legitimate log content is worse than no
 # redaction at all, because users stop trusting the redacted output.
-_APIKEY_QUERY_RE = re.compile(r'(apikey=)[^&\s]+', re.IGNORECASE)
+_APIKEY_QUERY_RE = re.compile(r'(api[_-]?key=)[^&\s]+', re.IGNORECASE)
 _APIKEY_JSON_RE = re.compile(r'(api[_-]?key["\']?\s*:\s*["\']?)[^&\s,}"\']+', re.IGNORECASE)
 RATE_LIMIT_MARKERS = (
     'http error 429',
