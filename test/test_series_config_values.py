@@ -57,6 +57,17 @@ class SeriesConfigValueTests(unittest.TestCase):
         )
         self.assertIsNot(matched[0], matched[1])
 
+    def test_explicit_false_subtitles_override_service_defaults(self):
+        self.client.services = {
+            'provider': {
+                'title': 'provider',
+                'url': 'https://www.youtube.com',
+                'subtitles': {'languages': ['en']},
+            }
+        }
+        self.client.series[0].update(service='provider', subtitles='false')
+        self.assertFalse(self.client.filterseries()[0]['subtitles'])
+
 
 if __name__ == '__main__':
     unittest.main()
