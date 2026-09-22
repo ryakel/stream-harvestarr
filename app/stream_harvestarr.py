@@ -594,7 +594,7 @@ class StreamHarvester:
         if not series_url:
             # No series url at all - use service url directly
             merged['url'] = svc_url
-            logger.debug('  URL inherited from service: {}'.format(svc_url))
+            logger.debug('  URL inherited from service configuration')
         else:
             try:
                 parsed_series_url = urllib.parse.urlsplit(series_url)
@@ -608,7 +608,7 @@ class StreamHarvester:
                 merged['url'] = urllib.parse.urljoin(
                     svc_url.rstrip('/') + '/', series_url.lstrip('/')
                 )
-                logger.debug('  URL joined from service: {}'.format(merged['url']))
+                logger.debug('  URL resolved from service configuration')
             else:
                 # Absolute URLs may inherit secrets only when both origins are valid
                 # HTTP(S) origins and match exactly.
@@ -863,7 +863,7 @@ class StreamHarvester:
             if SHORT_URL_RE.search(url or ''):
                 continue
             if not is_single_video(entry):
-                logger.debug('  Skipping collection result: %s', entry.get('title') or url)
+                logger.debug('  Skipping collection result: %s', entry.get('title') or '[untitled]')
                 continue
             if not title_matches(entry, matchtitle, rules):
                 logger.debug('  Skipping title mismatch: %s', entry.get('title'))

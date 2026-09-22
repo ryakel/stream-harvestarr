@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+from unittest.mock import Mock
 
 APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'app'))
 sys.path.insert(0, APP_DIR)
@@ -69,6 +70,45 @@ class ServiceOriginSecurityTests(unittest.TestCase):
                 self.assertNotIn('username', merged)
                 self.assertNotIn('password', merged)
                 self.assertNotIn('cookies_file', merged)
+
+    def test_secret_query_parameters_are_not_logged_during_url_merge(self):
+        cases = (
+            (
+                'https://example.test/members?access_token=TOPSECRET',
+                '',
+            ),
+            (
+                'https://example.test/members',
+                'channel?access_token=TOPSECRET',
+            ),
+        )
+        for service_url, series_url in cases:
+            with self.subTest(service_url=service_url, series_url=series_url):
+                self.client.services['members']['url'] = service_url
+                with self.assertLogs(app.logger, level='DEBUG') as captured:
+                    self.client.merge_service_config(
+                        {
+                            'title': 'Show',
+                            'service': 'members',
+                            **({'url': series_url} if series_url else {}),
+                        }
+                    )
+
+                self.assertNotIn('TOPSECRET', '\n'.join(captured.output))
+
+    def test_collection_result_urls_are_not_logged(self):
+        self.client.playlist_cache = Mock()
+        self.client.playlist_cache.get.return_value = [
+            {
+                '_type': 'playlist',
+                'url': 'https://example.test/playlist?access_token=TOPSECRET',
+            }
+        ]
+
+        with self.assertLogs(app.logger, level='DEBUG') as captured:
+            self.client.ytsearch({}, 'https://example.test/source')
+
+        self.assertNotIn('TOPSECRET', '\n'.join(captured.output))
 
     def test_relative_url_preserves_service_path(self):
         merged = self.client.merge_service_config(
