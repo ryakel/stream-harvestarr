@@ -34,7 +34,10 @@ class ScanLifecycleTests(unittest.TestCase):
             stream_harvestarr.main(cache)
             stream_harvestarr.main(cache)
 
-        self.assertEqual(constructor.call_args_list, [call(cache), call(cache)])
+        self.assertEqual(
+            constructor.call_args_list,
+            [call(cache, debug=False), call(cache, debug=False)],
+        )
         for client in clients:
             client.start_scan.assert_called_once_with([])
             client.getseriesepisodes.assert_called_once_with([])

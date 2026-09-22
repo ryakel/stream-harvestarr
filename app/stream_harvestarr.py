@@ -30,13 +30,14 @@ from utils import (
     ytdl_hooks_debug,
 )
 
-# allow debug arg for verbose logging
-parser = argparse.ArgumentParser(description='Process some integers.')
-parser.add_argument('--debug', action='store_true', help='Enable debug logging')
-args = parser.parse_args()
+def parse_args(argv=None):
+    """Parse command-line options when the executable entry point runs."""
+    parser = argparse.ArgumentParser(description='Run Stream Harvestarr scans.')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    return parser.parse_args(argv)
 
-# setup logger
-logger = setup_logging(True, True, args.debug)
+# Configure logging without inspecting the importing process's arguments.
+logger = setup_logging(True, True)
 
 date_format = '%Y-%m-%dT%H:%M:%SZ'
 
@@ -289,7 +290,7 @@ def url_origin(url):
 
 
 class StreamHarvester:
-    def __init__(self, playlist_cache=None):
+    def __init__(self, playlist_cache=None, debug=False):
         """Set up app with config file settings"""
         cfg = checkconfig()
         # Set config key for backwards compatibility in config.yml
@@ -299,7 +300,7 @@ class StreamHarvester:
         # Stream Harvestarr Setup
         try:
             self.scan_interval = self.set_scan_interval(self.config_section['scan_interval'])
-            self.debug = args.debug or self.config_section.get('debug') in ('true', 'True', True)
+            self.debug = debug or self.config_section.get('debug') in ('true', 'True', True)
             level = logging.DEBUG if self.debug else logging.INFO
             logger.setLevel(level)
             for handler in logger.handlers:
@@ -1141,10 +1142,10 @@ class StreamHarvester:
         return interval
 
 
-def main(playlist_cache=None, job=None):
+def main(playlist_cache=None, job=None, debug=False):
     """Run one scan of the configured series."""
     try:
-        client = StreamHarvester(playlist_cache)
+        client = StreamHarvester(playlist_cache, debug=debug)
     except (SystemExit, KeyError, TypeError, ValueError, OSError, yaml.YAMLError) as error:
         if job is None:
             raise
@@ -1192,6 +1193,7 @@ def main(playlist_cache=None, job=None):
 
 
 if __name__ == '__main__':
+    args = parse_args()
     if os.geteuid() == 0:
         logger.warning(
             'Container is running as root (uid 0). A future release will '
@@ -1202,9 +1204,9 @@ if __name__ == '__main__':
         )
     logger.info('Initial run')
     with closing(PlaylistCache()) as playlist_cache:
-        main(playlist_cache)
+        main(playlist_cache, debug=args.debug)
         job = schedule.every(int(SCANINTERVAL)).minutes
-        job.do(main, playlist_cache, job=job)
+        job.do(main, playlist_cache, job=job, debug=args.debug)
         while True:
             schedule.run_pending()
             time.sleep(1)
