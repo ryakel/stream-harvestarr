@@ -128,6 +128,14 @@ class RuntimeConfigTests(unittest.TestCase):
             app.StreamHarvester.set_scan_interval(object.__new__(app.StreamHarvester), 10**20)
         self.assertEqual(app.SCANINTERVAL, 60)
 
+    def test_nonfinite_backoff_multiplier_uses_safe_default(self):
+        cfg = copy.deepcopy(CONFIG)
+        cfg['streamharvestarr']['backoff_multiplier'] = 'nan'
+        with patch.object(app, 'checkconfig', return_value=cfg), \
+             patch.object(app.StreamHarvester, 'get_naming_config', return_value={}):
+            client = app.StreamHarvester()
+        self.assertEqual(client.backoff_multiplier, 2.0)
+
 
 class WantedEpisodeTests(unittest.TestCase):
     def test_filtering_is_ordered_and_does_not_mutate_api_results(self):

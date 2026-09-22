@@ -1,6 +1,7 @@
 import argparse
 import collections
 import logging
+import math
 import os
 import re
 import sys
@@ -313,6 +314,8 @@ class StreamHarvester:
                 self.backoff_enabled = True
             try:
                 self.backoff_multiplier = float(self.config_section.get('backoff_multiplier', 2.0))
+                if not math.isfinite(self.backoff_multiplier) or self.backoff_multiplier <= 0:
+                    raise ValueError('backoff_multiplier must be finite and positive')
                 logger.debug('Backoff multiplier set to {}'.format(self.backoff_multiplier))
             except (AttributeError, ValueError):
                 self.backoff_multiplier = 2.0
