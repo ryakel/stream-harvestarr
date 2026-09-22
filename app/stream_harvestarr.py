@@ -814,7 +814,7 @@ class StreamHarvester:
             if not title_matches(entry, matchtitle, rules):
                 logger.debug('  Skipping title mismatch: %s', entry.get('title'))
                 continue
-            if not url or url == playlist:
+            if not url:
                 continue
             logger.debug('  Matched "%s"', entry.get('title'))
             return url
