@@ -269,7 +269,7 @@ class StreamHarvester:
 
         # Stream Harvestarr Setup
         try:
-            self.set_scan_interval(self.config_section['scan_interval'])
+            self.scan_interval = self.set_scan_interval(self.config_section['scan_interval'])
             self.debug = args.debug or self.config_section.get('debug') in ('true', 'True', True)
             level = logging.DEBUG if self.debug else logging.INFO
             logger.setLevel(level)
@@ -417,6 +417,13 @@ class StreamHarvester:
             logger.warning('Could not retrieve Sonarr naming config, defaulting to no padding')
             self.season_padding = 0
             self.episode_padding = 0
+
+        global SCANINTERVAL
+        if self.scan_interval != SCANINTERVAL:
+            SCANINTERVAL = self.scan_interval
+            logger.info('Scan interval set to every %s minutes by config.yml', self.scan_interval)
+        else:
+            logger.info('Default scan interval of every %s minutes in use', self.scan_interval)
 
     def get_naming_config(self):
         """Return Sonarr naming configuration including season folder format"""
@@ -1079,7 +1086,6 @@ class StreamHarvester:
                     return
 
     def set_scan_interval(self, interval):
-        global SCANINTERVAL
         interval = int(interval)
         if interval <= 0:
             raise ValueError('scan_interval must be positive')
@@ -1087,12 +1093,7 @@ class StreamHarvester:
             datetime.now() + timedelta(minutes=interval)
         except OverflowError as error:
             raise ValueError('scan_interval is too large') from error
-        if interval != SCANINTERVAL:
-            SCANINTERVAL = interval
-            logger.info('Scan interval set to every {} minutes by config.yml'.format(interval))
-        else:
-            logger.info('Default scan interval of every {} minutes in use'.format(interval))
-        return
+        return interval
 
 
 def main(playlist_cache=None, job=None):

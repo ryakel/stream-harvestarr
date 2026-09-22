@@ -128,6 +128,18 @@ class RuntimeConfigTests(unittest.TestCase):
             app.StreamHarvester.set_scan_interval(object.__new__(app.StreamHarvester), 10**20)
         self.assertEqual(app.SCANINTERVAL, 60)
 
+    def test_invalid_later_config_does_not_apply_scan_interval(self):
+        cfg = copy.deepcopy(CONFIG)
+        cfg['streamharvestarr']['scan_interval'] = '15'
+        del cfg['ytdl']['merge_output_format']
+
+        with patch.object(app, 'checkconfig', return_value=cfg), \
+             patch.object(app.StreamHarvester, 'get_naming_config', return_value={}):
+            with self.assertRaises(SystemExit):
+                app.StreamHarvester()
+
+        self.assertEqual(app.SCANINTERVAL, 60)
+
     def test_nonfinite_backoff_multiplier_uses_safe_default(self):
         cfg = copy.deepcopy(CONFIG)
         cfg['streamharvestarr']['backoff_multiplier'] = 'nan'
