@@ -714,6 +714,7 @@ class StreamHarvester:
                     if not ser['monitored']:
                         logger.warning('%s is not currently monitored', ser['title'])
                     else:
+                        ser['_source_id'] = len(matched)
                         matched.append(ser)
         del series[:]
         return matched
@@ -744,6 +745,7 @@ class StreamHarvester:
                             ser['sonarr_regex_match'], ser['sonarr_regex_replace'], eps['title']
                         ),
                     }
+                eps = {**eps, '_source_id': ser.get('_source_id')}
                 episodes.append(eps)
             if not episodes:
                 logger.info('%s no episodes needed', ser['title'])
@@ -1128,11 +1130,13 @@ class StreamHarvester:
 
         episodes_by_series = collections.defaultdict(list)
         for episode in episodes:
-            episodes_by_series[episode['seriesId']].append(episode)
+            key = episode['seriesId'], episode.get('_source_id')
+            episodes_by_series[key].append(episode)
 
         logger.info('Processing Wanted Downloads')
         for current_series in series:
-            wanted = episodes_by_series.get(current_series['id'], [])
+            key = current_series['id'], current_series.get('_source_id')
+            wanted = episodes_by_series.get(key, [])
             if not wanted:
                 continue
             logger.info('  %s:', current_series['title'])

@@ -57,6 +57,44 @@ class SeriesConfigValueTests(unittest.TestCase):
         )
         self.assertIsNot(matched[0], matched[1])
 
+    def test_duplicate_sources_keep_episode_rewrites_with_their_source(self):
+        self.client.series = [
+            {
+                'title': 'Show',
+                'url': 'https://a.example/source',
+                'regex': {'sonarr': {'match': '^', 'replace': 'A: '}},
+            },
+            {
+                'title': 'Show',
+                'url': 'https://b.example/source',
+                'regex': {'sonarr': {'match': '^', 'replace': 'B: '}},
+            },
+        ]
+        episode = {
+            'id': 7,
+            'seriesId': 1,
+            'title': 'Episode',
+            'seasonNumber': 1,
+            'episodeNumber': 1,
+            'monitored': True,
+            'hasFile': False,
+        }
+        self.client.get_episodes_by_series_id = Mock(return_value=[episode])
+        series = self.client.filterseries()
+        episodes = self.client.getseriesepisodes(series)
+        self.client.download_episode = Mock(return_value=False)
+
+        self.client.download(series, episodes)
+
+        calls = [call.args[:2] for call in self.client.download_episode.call_args_list]
+        self.assertEqual(
+            [(source['url'], candidate['title']) for source, candidate in calls],
+            [
+                ('https://a.example/source', 'A: Episode'),
+                ('https://b.example/source', 'B: Episode'),
+            ],
+        )
+
     def test_explicit_false_subtitles_override_service_defaults(self):
         self.client.services = {
             'provider': {
