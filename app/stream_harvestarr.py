@@ -831,6 +831,7 @@ class StreamHarvester:
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
             'quiet': True,
+            'logger': YoutubeDLLogger(),
             # Search resolves only the configured source. Playlist entries stay
             # flat and are matched locally for each missing episode.
             'extract_flat': 'in_playlist',
@@ -842,7 +843,6 @@ class StreamHarvester:
             ytdlopts.update(
                 {
                     'quiet': False,
-                    'logger': YoutubeDLLogger(),
                     'progress_hooks': [ytdl_hooks],
                 }
             )
@@ -915,6 +915,7 @@ class StreamHarvester:
         options = {
             'format': self.ytdl_format,
             'quiet': True,
+            'logger': YoutubeDLLogger(),
             'merge_output_format': self.ytdl_merge_output_format,
             'outtmpl': ('{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s').format(
                 escape_template_literal(self.root_folder),
@@ -983,7 +984,6 @@ class StreamHarvester:
             options.update(
                 {
                     'quiet': False,
-                    'logger': YoutubeDLLogger(),
                     'progress_hooks': [ytdl_hooks_debug],
                 }
             )

@@ -1,5 +1,6 @@
 """Regression tests for log secret redaction."""
 
+import logging
 import os
 import sys
 import unittest
@@ -9,6 +10,7 @@ sys.path.insert(0, APP_DIR)
 os.environ.setdefault('CONFIGPATH', os.path.join(APP_DIR, '..', 'config', 'config.yml'))
 
 from utils import YoutubeDLLogger, redact_sensitive  # noqa: E402
+import stream_harvestarr as app  # noqa: E402
 
 
 class SensitiveRedactionTests(unittest.TestCase):
@@ -51,6 +53,28 @@ class SensitiveRedactionTests(unittest.TestCase):
         output = '\n'.join(logs.output)
         for secret in ('alice', 'TOPSECRET', '/home/alice/cookies.txt'):
             self.assertNotIn(secret, output)
+        self.assertIn('omitted', output)
+
+    def test_normal_ytdlp_options_always_use_the_redacting_logger(self):
+        client = object.__new__(app.StreamHarvester)
+        client.ytdl_format = 'best'
+        client.ytdl_merge_output_format = 'mkv'
+        client.root_folder = ''
+        client.season_padding = client.episode_padding = 0
+        client.sleep_requests = 0
+        client.debug = False
+        options = client.download_options(
+            {'title': 'Show', 'path': '/tv/Show'},
+            {'title': 'Episode', 'seasonNumber': 1, 'episodeNumber': 1},
+        )
+
+        self.assertIsInstance(options.get('logger'), YoutubeDLLogger)
+        self.assertIsInstance(client.ytdl_eps_search_opts(True).get('logger'), YoutubeDLLogger)
+        with self.assertLogs('stream_harvestarr', level=logging.INFO) as logs:
+            with app.yt_dlp.YoutubeDL(options) as ydl:
+                ydl.report_warning('Failed URL: https://example.test/?access_token=TOPSECRET')
+        output = '\n'.join(logs.output)
+        self.assertNotIn('TOPSECRET', output)
         self.assertIn('omitted', output)
 
 
