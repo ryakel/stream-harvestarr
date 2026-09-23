@@ -615,7 +615,7 @@ class StreamHarvester:
                 svc_origin = url_origin(svc_url)
                 series_origin = url_origin(series_url)
 
-                if svc_origin != series_origin:
+                if not svc_origin or not series_origin or svc_origin != series_origin:
                     logger.warning(
                         '  Series "{}" uses service "{}" but URL origin does not match '
                         'service origin. Credentials and cookies will NOT be inherited '

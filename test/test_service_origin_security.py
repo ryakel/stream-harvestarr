@@ -39,6 +39,21 @@ class ServiceOriginSecurityTests(unittest.TestCase):
         self.assertNotIn('password', merged)
         self.assertNotIn('cookies_file', merged)
 
+    def test_protocol_relative_urls_do_not_inherit_credentials_between_hosts(self):
+        self.client.services['members']['url'] = '//trusted.example/members'
+        merged = self.client.merge_service_config(
+            {
+                'title': 'Show',
+                'service': 'members',
+                'url': '//other.example/video',
+            }
+        )
+
+        self.assertEqual(merged['url'], '//other.example/video')
+        self.assertNotIn('username', merged)
+        self.assertNotIn('password', merged)
+        self.assertNotIn('cookies_file', merged)
+
     def test_absolute_urls_with_other_schemes_do_not_inherit_credentials(self):
         for url in (
             'HTTPS://attacker.example/steal',
