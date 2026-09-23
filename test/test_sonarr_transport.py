@@ -50,6 +50,18 @@ class SonarrTransportTests(unittest.TestCase):
             timeout=app.SONARR_TIMEOUT,
         )
 
+    def test_request_get_raises_for_http_errors(self):
+        client = object.__new__(app.StreamHarvester)
+        client.api_key = 'key'
+        response = Mock()
+        response.raise_for_status.side_effect = app.requests.HTTPError('503 Server Error')
+
+        with patch.object(app.requests, 'get', return_value=response):
+            with self.assertRaises(app.requests.HTTPError):
+                client.request_get('http://sonarr/api')
+
+        response.raise_for_status.assert_called_once_with()
+
     def test_basedir_is_joined_once(self):
         with patch.object(app, 'checkconfig', return_value=copy.deepcopy(CONFIG)), \
              patch.object(app.StreamHarvester, 'get_naming_config', return_value={}):

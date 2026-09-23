@@ -492,8 +492,9 @@ class StreamHarvester:
             logger.debug('GET request with %d additional params', len(params))
             args.update(params)
         url = '{}?{}'.format(url, urllib.parse.urlencode(args))
-        res = requests.get(url, timeout=SONARR_TIMEOUT)
-        return res
+        response = requests.get(url, timeout=SONARR_TIMEOUT)
+        response.raise_for_status()
+        return response
 
     def request_put(self, url, params=None, jsondata=None):
         """Wrapper on the requests.put"""
