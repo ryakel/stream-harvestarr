@@ -119,10 +119,12 @@ class PlaylistCache:
 
     entries: dict[CacheKey, PlaylistSnapshot] = field(default_factory=dict)
     refreshed: set[CacheKey] = field(default_factory=set)
+    used: set[CacheKey] = field(default_factory=set)
 
     def begin_scan(self, playlists=None):
         """Reset refresh tracking and remove sources no longer in the scan."""
         self.refreshed.clear()
+        self.used.clear()
         if playlists is not None:
             for key in list(self.entries):
                 if key[0] not in playlists:
@@ -130,7 +132,7 @@ class PlaylistCache:
 
     def end_scan(self):
         """Release unused credential variants and sources with no wanted episodes."""
-        for key in self.entries.keys() - self.refreshed:
+        for key in self.entries.keys() - self.used:
             self._discard(key)
 
     def close(self):
@@ -140,6 +142,7 @@ class PlaylistCache:
     def get(self, ydl_opts, playlist):
         """Return cached candidates, refreshing the source once when needed."""
         key = self._key(ydl_opts, playlist)
+        self.used.add(key)
         if key not in self.refreshed:
             self.refreshed.add(key)
             try:
@@ -168,7 +171,9 @@ class PlaylistCache:
 
     def discard(self, ydl_opts, playlist):
         """Release an episode-specific search snapshot and its refresh marker."""
-        self._discard(self._key(ydl_opts, playlist))
+        key = self._key(ydl_opts, playlist)
+        self.used.discard(key)
+        self._discard(key)
 
     def _discard(self, key):
         snapshot = self.entries.pop(key, None)

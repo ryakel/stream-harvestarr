@@ -13,6 +13,7 @@ sys.argv = sys.argv[:1]
 
 import stream_harvestarr as app  # noqa: E402
 from playlists import PlaylistRateLimitError  # noqa: E402
+from playlist_snapshot import PlaylistSnapshot  # noqa: E402
 
 
 SERIES = {'id': 1, 'title': 'Show', 'path': '/tv/Show', 'monitored': True}
@@ -50,6 +51,28 @@ class DiscoveryRateLimitTests(unittest.TestCase):
         with patch.object(app.yt_dlp, 'YoutubeDL', return_value=RateLimitedYoutubeDL()):
             with self.assertRaises(PlaylistRateLimitError):
                 app.PlaylistCache._extract({}, source)
+
+    def test_rate_limit_retry_preserves_previous_snapshot_until_scan_end(self):
+        source = 'https://www.youtube.com/@Show'
+        cache = app.PlaylistCache()
+        self.addCleanup(cache.close)
+        key = cache._key({}, source)
+        cache.entries[key] = PlaylistSnapshot(
+            [('Episode', 'https://youtu.be/abcdefghijk')]
+        )
+        cache.begin_scan({source})
+
+        with patch.object(cache, '_extract', side_effect=PlaylistRateLimitError('HTTP Error 429')):
+            with self.assertRaises(PlaylistRateLimitError):
+                cache.get({}, source)
+
+        self.assertIn(key, cache.entries)
+        cache.end_scan()
+        self.assertIn(key, cache.entries)
+        self.assertEqual(
+            list(cache.entries[key]),
+            [{'title': 'Episode', 'url': 'https://youtu.be/abcdefghijk'}],
+        )
 
 
 if __name__ == '__main__':
