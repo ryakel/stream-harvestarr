@@ -877,7 +877,7 @@ class StreamHarvester:
             'source_address': '0.0.0.0',
             'sleep_interval': 5,
             'max_sleep_interval': 30,
-            'continuedl': False,
+            'continuedl': True,
             'nooverwrites': True,
             'throttledratelimit': 102400,
             'concurrent_fragment_downloads': 5,

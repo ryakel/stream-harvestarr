@@ -26,7 +26,9 @@ class YtDlpOptionNameTests(unittest.TestCase):
         episode = {'title': 'Episode', 'seasonNumber': 1, 'episodeNumber': 1}
         options = client.download_options(series, episode)
         self.assertEqual(options['source_address'], '0.0.0.0')
-        self.assertFalse(options['continuedl'])
+        # yt-dlp restarts extraction when a download stays under
+        # throttledratelimit; keep its partial file so retries can resume.
+        self.assertTrue(options['continuedl'])
         self.assertEqual(options['concurrent_fragment_downloads'], 5)
         self.assertTrue(options['allow_multiple_audio_streams'])
         self.assertEqual(options['throttledratelimit'], 102400)
