@@ -58,22 +58,6 @@ _SENTINEL_DEAD_NAMES = (
     'definitely_not_a_ytdlp_option',
 )
 
-# Dead options still present in app code, exempted so this suite can land
-# green rather than waiting on the fix. PR #179 replaces all five with their
-# real API names; when it merges, delete this set and the exemption test
-# below will stop passing until it is gone.
-#
-# The exemption is itself tested (see test_every_exemption_is_still_needed),
-# so it cannot quietly outlive the bug it covers.
-_KNOWN_DEAD_OPTIONS_PENDING_FIX = frozenset({
-    'forceipv4',
-    'nocontinue',
-    'throttled_rate',
-    'concurrent_fragments',
-    'audio_multistreams',
-})
-
-
 def accepted_parameters():
     """Return every option name the installed yt-dlp actually reads."""
     names = set()
@@ -153,8 +137,7 @@ class OptionNameContractTests(unittest.TestCase):
         self.accepted = accepted_parameters()
 
     def assertOptionsAccepted(self, options, origin):
-        unknown = sorted(
-            set(options) - self.accepted - _KNOWN_DEAD_OPTIONS_PENDING_FIX)
+        unknown = sorted(set(options) - self.accepted)
         self.assertEqual(
             unknown, [],
             f'{origin} passes {unknown} to yt-dlp, which does not read '
@@ -195,24 +178,6 @@ class OptionNameContractTests(unittest.TestCase):
                 self.assertOptionsAccepted(
                     client.download_options(series, dict(EPISODE)),
                     f'download_options() [{label}]')
-
-    def test_every_exemption_is_still_needed(self):
-        """The exemption list must shrink to empty, not linger past its fix.
-
-        Each name below is exempted only because app code still passes it.
-        Once #179 lands and removes them, this fails -- which is the prompt to
-        delete _KNOWN_DEAD_OPTIONS_PENDING_FIX and let the contract stand on
-        its own.
-        """
-        if not _KNOWN_DEAD_OPTIONS_PENDING_FIX:
-            self.skipTest('no exemptions outstanding')
-        options = make_client().download_options(dict(SERIES), dict(EPISODE))
-        stale = sorted(_KNOWN_DEAD_OPTIONS_PENDING_FIX - set(options))
-        self.assertEqual(
-            stale, [],
-            f'{stale} no longer appear in download_options(), so the '
-            f'exemption for them is obsolete. Remove them from '
-            f'_KNOWN_DEAD_OPTIONS_PENDING_FIX so the contract applies fully.')
 
     def test_search_options_across_configurations(self):
         """ytdl_eps_search_opts() has its own debug and credential branches."""
