@@ -927,13 +927,11 @@ class StreamHarvester:
             ),
             'progress_hooks': [ytdl_hooks],
             'noplaylist': True,
-            'source_address': '0.0.0.0',
             'sleep_interval': 5,
             'max_sleep_interval': 30,
             'continuedl': True,
             'nooverwrites': True,
             'throttledratelimit': 102400,
-            'concurrent_fragment_downloads': 5,
             'allow_multiple_audio_streams': True,
             'js_runtimes': JS_RUNTIMES,
         }
