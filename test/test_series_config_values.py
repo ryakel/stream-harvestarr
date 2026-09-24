@@ -38,12 +38,13 @@ class SeriesConfigValueTests(unittest.TestCase):
         self.client.series[0]['playlistreverse'] = 'false'
         self.assertFalse(self.client.filterseries()[0]['playlistreverse'])
 
-    def test_invalid_sonarr_replacement_rejects_configuration(self):
+    def test_invalid_sonarr_replacement_skips_series(self):
         self.client.series[0]['regex'] = {
             'sonarr': {'match': '(.*)', 'replace': r'\g<missing>'},
         }
-        with self.assertRaises(ValueError):
-            self.client.filterseries()
+        with self.assertLogs('stream_harvestarr', level='ERROR') as logs:
+            self.assertEqual(self.client.filterseries(), [])
+        self.assertIn('Skipping series "Show"', '\n'.join(logs.output))
 
     def test_duplicate_configured_sources_keep_independent_series_data(self):
         self.client.series.append({

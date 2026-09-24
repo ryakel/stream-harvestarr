@@ -659,27 +659,38 @@ class StreamHarvester:
                     ser['channel_search'] = wnt.get('channel_search') in ('true', 'True', True)
                     # Update values
                     if 'regex' in wnt:
-                        regex = wnt['regex']
-                        if 'sonarr' in regex:
-                            validate_regex_replacement(
-                                regex['sonarr']['match'],
-                                regex['sonarr']['replace'],
+                        try:
+                            regex = wnt['regex']
+                            if 'sonarr' in regex:
+                                validate_regex_replacement(
+                                    regex['sonarr']['match'],
+                                    regex['sonarr']['replace'],
+                                    ser['title'],
+                                )
+                                ser['sonarr_regex_match'] = regex['sonarr']['match']
+                                ser['sonarr_regex_replace'] = regex['sonarr']['replace']
+                            if 'site' in regex:
+                                ser['site_regex_match'] = regex['site']['match']
+                                ser['site_regex_replace'] = regex['site']['replace']
+                                # Compile once per series, not once per episode:
+                                # an invalid pattern should warn a single time.
+                                ser['site_regex'] = compile_site_regex(
+                                    regex['site']['match'],
+                                    regex['site'].get('replace'),
+                                    ser['title'],
+                                )
+                            if 'require' in regex:
+                                ser['site_require'] = compile_require(
+                                    regex['require'], ser['title']
+                                )
+                        except ValueError as error:
+                            logger.error(
+                                'Skipping series "%s" because its regex configuration is '
+                                'invalid: %s',
                                 ser['title'],
+                                error,
                             )
-                            ser['sonarr_regex_match'] = regex['sonarr']['match']
-                            ser['sonarr_regex_replace'] = regex['sonarr']['replace']
-                        if 'site' in regex:
-                            ser['site_regex_match'] = regex['site']['match']
-                            ser['site_regex_replace'] = regex['site']['replace']
-                            # Compile once per series, not once per episode:
-                            # an invalid pattern should warn a single time.
-                            ser['site_regex'] = compile_site_regex(
-                                regex['site']['match'],
-                                regex['site'].get('replace'),
-                                ser['title'],
-                            )
-                        if 'require' in regex:
-                            ser['site_require'] = compile_require(regex['require'], ser['title'])
+                            continue
                     if 'strict_parts' in wnt:
                         # checkconfig() parses with yaml.BaseLoader, so every
                         # scalar arrives as a string and a bare truth test would
