@@ -1,6 +1,7 @@
 import argparse
 import collections
 import logging
+import math
 import os
 import re
 import sys
@@ -8,37 +9,42 @@ import time
 import urllib.parse
 from contextlib import closing
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import requests
 import schedule
+import yaml
 import yt_dlp
 from pathutils import DEFAULT_ROOT_FOLDER, normalize_root_folder
 from playlists import PlaylistCache, entry_url, is_single_video, video_search_url
 from utils import (
     YoutubeDLLogger,
     checkconfig,
+    is_rate_limit_error,
     normalize_title,
     offsethandler,
+    redact_sensitive,
     setup_logging,
     upperescape,
     ytdl_hooks,
     ytdl_hooks_debug,
 )
 
-# allow debug arg for verbose logging
-parser = argparse.ArgumentParser(description='Process some integers.')
-parser.add_argument('--debug', action='store_true', help='Enable debug logging')
-args = parser.parse_args()
+def parse_args(argv=None):
+    """Parse command-line options when the executable entry point runs."""
+    parser = argparse.ArgumentParser(description='Run Stream Harvestarr scans.')
+    parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    return parser.parse_args(argv)
 
-# setup logger
-logger = setup_logging(True, True, args.debug)
+# Configure logging without inspecting the importing process's arguments.
+logger = setup_logging(True, True)
 
 date_format = '%Y-%m-%dT%H:%M:%SZ'
 
 CONFIGFILE = os.environ['CONFIGPATH']
 CONFIGPATH = CONFIGFILE.replace('config.yml', '')
 SCANINTERVAL = 60
+SONARR_TIMEOUT = (10, 60)
 
 # yt-dlp needs a JavaScript runtime for YouTube extraction.  Prefer deno
 # (upstream default, installed on amd64/arm64 images) and fall back to
@@ -221,7 +227,7 @@ def compile_site_regex(match, replace, series_title):
     if match is None:
         return None
     try:
-        return (re.compile(match), replace if replace is not None else '')
+        pattern = re.compile(match)
     except re.error as e:
         logger.warning(
             'Series "{}" has an invalid regex.site match pattern ({}) - ignoring'.format(
@@ -229,6 +235,14 @@ def compile_site_regex(match, replace, series_title):
             )
         )
         return None
+    replacement = replace if replace is not None else ''
+    try:
+        pattern.sub(replacement, '')
+    except (re.error, IndexError, KeyError, TypeError) as e:
+        raise ValueError(
+            f'Series "{series_title}" has an invalid regex.site replacement: {e}'
+        ) from e
+    return pattern, replacement
 
 
 def compile_require(pattern, series_title):
@@ -246,16 +260,37 @@ def compile_require(pattern, series_title):
     try:
         return re.compile(pattern, re.IGNORECASE)
     except re.error as e:
-        logger.warning(
-            'Series "{}" has an invalid regex.require pattern ({}) - ignoring'.format(
-                series_title, e
-            )
-        )
+        raise ValueError(
+            f'Series "{series_title}" has an invalid regex.require pattern: {e}'
+        ) from e
+
+
+def validate_regex_replacement(match, replacement, series_title):
+    """Validate a Sonarr title rewrite before a scan can use it."""
+    try:
+        re.compile(match).sub(replacement, '')
+    except (re.error, IndexError, KeyError, TypeError) as e:
+        raise ValueError(
+            f'Series "{series_title}" has an invalid Sonarr regex replacement: {e}'
+        ) from e
+
+
+def url_origin(url):
+    """Return the normalized HTTP origin for a URL, or None if invalid."""
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme not in ('http', 'https') or not parsed.hostname:
+            return None
+        port = parsed.port
+    except ValueError:
         return None
+    if port is None:
+        port = 443 if parsed.scheme == 'https' else 80
+    return parsed.scheme, parsed.hostname.lower(), port
 
 
 class StreamHarvester:
-    def __init__(self, playlist_cache=None):
+    def __init__(self, playlist_cache=None, debug=False):
         """Set up app with config file settings"""
         cfg = checkconfig()
         # Set config key for backwards compatibility in config.yml
@@ -264,20 +299,17 @@ class StreamHarvester:
 
         # Stream Harvestarr Setup
         try:
-            self.set_scan_interval(self.config_section['scan_interval'])
-            try:
-                self.debug = self.config_section['debug'] in ['true', 'True']
-                if self.debug:
-                    logger.setLevel(logging.DEBUG)
-                    for handler in logger.handlers:
-                        if handler.name in ('FileHandler', 'StreamHandler'):
-                            handler.setLevel(logging.DEBUG)
-                    logger.debug('DEBUGGING ENABLED')
-            except AttributeError:
-                self.debug = False
+            self.scan_interval = self.set_scan_interval(self.config_section['scan_interval'])
+            self.debug = debug or self.config_section.get('debug') in ('true', 'True', True)
+            level = logging.DEBUG if self.debug else logging.INFO
+            logger.setLevel(level)
+            for handler in logger.handlers:
+                handler.setLevel(level)
             # Rate limiting configuration
             try:
                 self.download_delay = int(self.config_section.get('download_delay', 0))
+                if self.download_delay < 0:
+                    raise ValueError('download_delay must be non-negative')
                 if self.download_delay > 0:
                     logger.info(
                         'Download delay set to {} seconds between downloads'.format(
@@ -288,6 +320,8 @@ class StreamHarvester:
                 self.download_delay = 0
             try:
                 self.sleep_requests = int(self.config_section.get('sleep_requests', 0))
+                if self.sleep_requests < 0:
+                    raise ValueError('sleep_requests must be non-negative')
                 if self.sleep_requests > 0:
                     logger.info(
                         'Sleep requests set to {} seconds between API requests'.format(
@@ -298,6 +332,8 @@ class StreamHarvester:
                 self.sleep_requests = 0
             try:
                 self.rate_limit_sleep = int(self.config_section.get('rate_limit_sleep', 900))
+                if self.rate_limit_sleep < 0:
+                    raise ValueError('rate_limit_sleep must be non-negative')
                 logger.debug('Rate limit sleep set to {} seconds'.format(self.rate_limit_sleep))
             except (AttributeError, ValueError):
                 self.rate_limit_sleep = 900
@@ -314,11 +350,15 @@ class StreamHarvester:
                 self.backoff_enabled = True
             try:
                 self.backoff_multiplier = float(self.config_section.get('backoff_multiplier', 2.0))
+                if not math.isfinite(self.backoff_multiplier) or self.backoff_multiplier <= 0:
+                    raise ValueError('backoff_multiplier must be finite and positive')
                 logger.debug('Backoff multiplier set to {}'.format(self.backoff_multiplier))
             except (AttributeError, ValueError):
                 self.backoff_multiplier = 2.0
             try:
                 self.backoff_max = int(self.config_section.get('backoff_max', 3600))
+                if self.backoff_max < 0:
+                    raise ValueError('backoff_max must be non-negative')
                 logger.debug('Max backoff set to {} seconds'.format(self.backoff_max))
             except (AttributeError, ValueError):
                 self.backoff_max = 3600
@@ -340,8 +380,9 @@ class StreamHarvester:
                 logger.debug('Sonarr api set to v4')
             if cfg['sonarr']['ssl'].lower() == 'true':
                 scheme = 'https'
-            if cfg['sonarr'].get('basedir', ''):
-                basedir = '/' + cfg['sonarr'].get('basedir', '')
+            configured_basedir = cfg['sonarr'].get('basedir', '').strip('/')
+            if configured_basedir:
+                basedir = '/' + configured_basedir
 
             self.base_url = '{0}://{1}:{2}{3}'.format(
                 scheme, cfg['sonarr']['host'], str(cfg['sonarr']['port']), basedir
@@ -392,7 +433,7 @@ class StreamHarvester:
             sys.exit('Error with ytdl config.yml values.')
 
         # Sonarr's naming config controls zero-padding (e.g. Season {season:00}).
-        # Read it once at startup so downloaded paths match the user's media layout.
+        # Refresh it with each scan so paths follow Sonarr naming changes.
         # Format strings themselves are not logged: CodeQL flags any value derived
         # from a Sonarr API response as a potential credential leak (the request
         # carries apikey=), and the format string isn't worth a per-line suppression.
@@ -406,6 +447,13 @@ class StreamHarvester:
             logger.warning('Could not retrieve Sonarr naming config, defaulting to no padding')
             self.season_padding = 0
             self.episode_padding = 0
+
+        global SCANINTERVAL
+        if self.scan_interval != SCANINTERVAL:
+            SCANINTERVAL = self.scan_interval
+            logger.info('Scan interval set to every %s minutes by config.yml', self.scan_interval)
+        else:
+            logger.info('Default scan interval of every %s minutes in use', self.scan_interval)
 
     def get_naming_config(self):
         """Return Sonarr naming configuration including season folder format"""
@@ -473,9 +521,9 @@ class StreamHarvester:
         if params is not None:
             logger.debug('GET request with %d additional params', len(params))
             args.update(params)
-        url = '{}?{}'.format(url, urllib.parse.urlencode(args))
-        res = requests.get(url)
-        return res
+        response = requests.get(url, params=args, timeout=SONARR_TIMEOUT)
+        response.raise_for_status()
+        return response
 
     def request_put(self, url, params=None, jsondata=None):
         """Wrapper on the requests.put"""
@@ -483,11 +531,14 @@ class StreamHarvester:
         headers = {
             'Content-Type': 'application/json',
         }
-        args = (('apikey', self.api_key),)
+        args = {'apikey': self.api_key}
         if params is not None:
             args.update(params)
             logger.debug('PUT request params keys: {}'.format(list(params.keys())))
-        res = requests.post(url, headers=headers, params=args, json=jsondata)
+        res = requests.post(
+            url, headers=headers, params=args, json=jsondata, timeout=SONARR_TIMEOUT
+        )
+        res.raise_for_status()
         return res
 
     def rescanseries(self, series_id):
@@ -497,6 +548,7 @@ class StreamHarvester:
         res = self.request_put(
             '{}/{}/command'.format(self.base_url, self.sonarr_api_version), None, data
         )
+        res.raise_for_status()
         return res.json()
 
     def merge_service_config(self, wnt):
@@ -518,7 +570,7 @@ class StreamHarvester:
                     wnt.get('title', '?'), service_name
                 )
             )
-            return wnt
+            return None
 
         svc = self.services[service_name]
         logger.debug(
@@ -542,38 +594,47 @@ class StreamHarvester:
         if not series_url:
             # No series url at all - use service url directly
             merged['url'] = svc_url
-            logger.debug('  URL inherited from service: {}'.format(svc_url))
-        elif not series_url.startswith('http'):
-            # Relative path - join onto service base url
-            base = svc_url.rstrip('/')
-            path = series_url.lstrip('/')
-            merged['url'] = '{}/{}'.format(base, path)
-            logger.debug('  URL joined from service: {}'.format(merged['url']))
+            logger.debug('  URL inherited from service configuration')
         else:
-            # Absolute URL provided — verify it shares the same domain as the service
-            # to prevent credentials/cookies inherited from the service being sent to
-            # a different site than intended.
-            svc_domain = urllib.parse.urlparse(svc_url).netloc
-            series_domain = urllib.parse.urlparse(series_url).netloc
+            try:
+                parsed_series_url = urllib.parse.urlsplit(series_url)
+            except ValueError:
+                parsed_series_url = None
 
-            if svc_domain and series_domain != svc_domain:
-                logger.warning(
-                    '  Series "{}" uses service "{}" but URL domain "{}" does not match '
-                    'service domain "{}". Credentials and cookies will NOT be inherited '
-                    'to avoid sending them to an unintended site. '
-                    'Use a relative URL or move credentials to the series directly.'.format(
-                        wnt.get('title', '?'), service_name, series_domain, svc_domain
-                    )
+            if parsed_series_url is not None and not (
+                parsed_series_url.scheme or parsed_series_url.netloc
+            ):
+                # Join only genuinely relative paths; urljoin also accepts absolute URLs.
+                merged['url'] = urllib.parse.urljoin(
+                    svc_url.rstrip('/') + '/', series_url.lstrip('/')
                 )
-                # Strip inherited credentials and cookies from merged config
-                for cred_key in ('username', 'password', 'cookies_file'):
-                    if cred_key in merged and cred_key not in wnt:
-                        del merged[cred_key]
-                        logger.debug(
-                            '  Removed inherited {} due to domain mismatch'.format(cred_key)
-                        )
+                logger.debug('  URL resolved from service configuration')
             else:
-                logger.debug('  Absolute URL domain matches service domain - credentials retained')
+                # Absolute URLs may inherit secrets only when both origins are valid
+                # HTTP(S) origins and match exactly.
+                svc_origin = url_origin(svc_url)
+                series_origin = url_origin(series_url)
+
+                if not svc_origin or not series_origin or svc_origin != series_origin:
+                    logger.warning(
+                        '  Series "{}" uses service "{}" but URL origin does not match '
+                        'service origin. Credentials and cookies will NOT be inherited '
+                        'to avoid sending them to an unintended site. '
+                        'Use a relative URL or move credentials to the series directly.'.format(
+                            wnt.get('title', '?'), service_name
+                        )
+                    )
+                    # Strip inherited credentials and cookies from merged config
+                    for cred_key in ('username', 'password', 'cookies_file'):
+                        if cred_key in merged and cred_key not in wnt:
+                            del merged[cred_key]
+                            logger.debug(
+                                '  Removed inherited {} due to origin mismatch'.format(cred_key)
+                            )
+                else:
+                    logger.debug(
+                        '  Absolute URL origin matches service origin - credentials retained'
+                    )
 
         return merged
 
@@ -581,11 +642,14 @@ class StreamHarvester:
         """Return all series in Sonarr that are to be downloaded by yt-dlp"""
         series = self.get_series()
         matched = []
-        for ser in series[:]:
+        for sonarr_series in series:
             for wnt in self.series:
-                if normalize_title(wnt['title']) == normalize_title(ser['title']):
+                if normalize_title(wnt['title']) == normalize_title(sonarr_series['title']):
+                    ser = dict(sonarr_series)
                     # Merge service config before reading any keys (series overrides service)
                     wnt = self.merge_service_config(wnt)
+                    if wnt is None:
+                        continue
                     # Set default values
                     ser['subtitles'] = False
                     ser['playlistreverse'] = True
@@ -595,22 +659,38 @@ class StreamHarvester:
                     ser['channel_search'] = wnt.get('channel_search') in ('true', 'True', True)
                     # Update values
                     if 'regex' in wnt:
-                        regex = wnt['regex']
-                        if 'sonarr' in regex:
-                            ser['sonarr_regex_match'] = regex['sonarr']['match']
-                            ser['sonarr_regex_replace'] = regex['sonarr']['replace']
-                        if 'site' in regex:
-                            ser['site_regex_match'] = regex['site']['match']
-                            ser['site_regex_replace'] = regex['site']['replace']
-                            # Compile once per series, not once per episode:
-                            # an invalid pattern should warn a single time.
-                            ser['site_regex'] = compile_site_regex(
-                                regex['site']['match'],
-                                regex['site'].get('replace'),
+                        try:
+                            regex = wnt['regex']
+                            if 'sonarr' in regex:
+                                validate_regex_replacement(
+                                    regex['sonarr']['match'],
+                                    regex['sonarr']['replace'],
+                                    ser['title'],
+                                )
+                                ser['sonarr_regex_match'] = regex['sonarr']['match']
+                                ser['sonarr_regex_replace'] = regex['sonarr']['replace']
+                            if 'site' in regex:
+                                ser['site_regex_match'] = regex['site']['match']
+                                ser['site_regex_replace'] = regex['site']['replace']
+                                # Compile once per series, not once per episode:
+                                # an invalid pattern should warn a single time.
+                                ser['site_regex'] = compile_site_regex(
+                                    regex['site']['match'],
+                                    regex['site'].get('replace'),
+                                    ser['title'],
+                                )
+                            if 'require' in regex:
+                                ser['site_require'] = compile_require(
+                                    regex['require'], ser['title']
+                                )
+                        except ValueError as error:
+                            logger.error(
+                                'Skipping series "%s" because its regex configuration is '
+                                'invalid: %s',
                                 ser['title'],
+                                error,
                             )
-                        if 'require' in regex:
-                            ser['site_require'] = compile_require(regex['require'], ser['title'])
+                            continue
                     if 'strict_parts' in wnt:
                         # checkconfig() parses with yaml.BaseLoader, so every
                         # scalar arrives as a string and a bare truth test would
@@ -629,54 +709,64 @@ class StreamHarvester:
                     if 'format' in wnt:
                         ser['format'] = wnt['format']
                     if 'playlistreverse' in wnt:
-                        if wnt['playlistreverse'] == 'False':
-                            ser['playlistreverse'] = False
-                    if 'subtitles' in wnt:
+                        ser['playlistreverse'] = wnt['playlistreverse'] not in (
+                            'false', 'False', False
+                        )
+                    subtitles = wnt.get('subtitles')
+                    if isinstance(subtitles, dict):
                         ser['subtitles'] = True
-                        if 'languages' in wnt['subtitles']:
-                            ser['subtitles_languages'] = wnt['subtitles']['languages']
-                        if 'autogenerated' in wnt['subtitles']:
-                            ser['subtitles_autogenerated'] = wnt['subtitles']['autogenerated']
+                        if 'languages' in subtitles:
+                            ser['subtitles_languages'] = subtitles['languages']
+                        if 'autogenerated' in subtitles:
+                            ser['subtitles_autogenerated'] = subtitles['autogenerated']
+                    elif subtitles in ('true', 'True', True):
+                        ser['subtitles'] = True
                     ser['url'] = wnt['url']
-                    matched.append(ser)
-        for check in matched:
-            if not check['monitored']:
-                logger.warning('{0} is not currently monitored'.format(ser['title']))
+                    if not ser['monitored']:
+                        logger.warning('%s is not currently monitored', ser['title'])
+                    else:
+                        ser['_source_id'] = len(matched)
+                        matched.append(ser)
         del series[:]
         return matched
 
     def getseriesepisodes(self, series):
         """Return monitored episodes without an existing file for each series."""
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         needed = []
-        for ser in series[:]:
-            episodes = self.get_episodes_by_series_id(ser['id'])
-            for eps in episodes[:]:
+        active_series = []
+        for ser in series:
+            episodes = []
+            for eps in self.get_episodes_by_series_id(ser['id']):
+                if not eps['monitored'] or eps['hasFile']:
+                    continue
                 eps_date = now
-                if 'airDateUtc' in eps:
-                    eps_date = datetime.strptime(eps['airDateUtc'], date_format)
+                if eps.get('airDateUtc'):
+                    eps_date = datetime.strptime(eps['airDateUtc'], date_format).replace(
+                        tzinfo=timezone.utc
+                    )
                     if 'offset' in ser:
                         eps_date = offsethandler(eps_date, ser['offset'])
-                if not eps['monitored']:
-                    episodes.remove(eps)
-                elif eps['hasFile']:
-                    episodes.remove(eps)
-                elif eps_date > now:
-                    episodes.remove(eps)
-                else:
-                    if 'sonarr_regex_match' in ser:
-                        match = ser['sonarr_regex_match']
-                        replace = ser['sonarr_regex_replace']
-                        eps['title'] = re.sub(match, replace, eps['title'])
-                    needed.append(eps)
+                if eps_date > now:
                     continue
-            if len(episodes) == 0:
-                logger.info('{0} no episodes needed'.format(ser['title']))
-                series.remove(ser)
-            else:
-                logger.info('{0} missing {1} episodes'.format(ser['title'], len(episodes)))
-                for i, episode in enumerate(episodes):
-                    logger.info('  {0}: {1} - {2}'.format(i + 1, ser['title'], episode['title']))
+                if 'sonarr_regex_match' in ser:
+                    eps = {
+                        **eps,
+                        'title': re.sub(
+                            ser['sonarr_regex_match'], ser['sonarr_regex_replace'], eps['title']
+                        ),
+                    }
+                eps = {**eps, '_source_id': ser.get('_source_id')}
+                episodes.append(eps)
+            if not episodes:
+                logger.info('%s no episodes needed', ser['title'])
+                continue
+            active_series.append(ser)
+            needed.extend(episodes)
+            logger.info('%s missing %d episodes', ser['title'], len(episodes))
+            for number, episode in enumerate(episodes, start=1):
+                logger.info('  %d: %s - %s', number, ser['title'], episode['title'])
+        series[:] = active_series
         return needed
 
     def start_scan(self, series=None):
@@ -752,16 +842,18 @@ class StreamHarvester:
             'ignoreerrors': True,
             'playlistreverse': playlistreverse,
             'quiet': True,
+            'logger': YoutubeDLLogger(),
             # Search resolves only the configured source. Playlist entries stay
             # flat and are matched locally for each missing episode.
             'extract_flat': 'in_playlist',
             'js_runtimes': JS_RUNTIMES,
         }
+        if getattr(self, 'sleep_requests', 0) > 0:
+            ytdlopts['sleep_interval_requests'] = self.sleep_requests
         if self.debug is True:
             ytdlopts.update(
                 {
                     'quiet': False,
-                    'logger': YoutubeDLLogger(),
                     'progress_hooks': [ytdl_hooks],
                 }
             )
@@ -782,12 +874,12 @@ class StreamHarvester:
             if SHORT_URL_RE.search(url or ''):
                 continue
             if not is_single_video(entry):
-                logger.debug('  Skipping collection result: %s', entry.get('title') or url)
+                logger.debug('  Skipping collection result: %s', entry.get('title') or '[untitled]')
                 continue
             if not title_matches(entry, matchtitle, rules):
                 logger.debug('  Skipping title mismatch: %s', entry.get('title'))
                 continue
-            if not url or url == playlist:
+            if not url:
                 continue
             logger.debug('  Matched "%s"', entry.get('title'))
             return url
@@ -834,6 +926,7 @@ class StreamHarvester:
         options = {
             'format': self.ytdl_format,
             'quiet': True,
+            'logger': YoutubeDLLogger(),
             'merge_output_format': self.ytdl_merge_output_format,
             'outtmpl': ('{0}{1}/Season {2}/{3} - S{2}E{4} - {5} WEBDL.%(ext)s').format(
                 escape_template_literal(self.root_folder),
@@ -845,14 +938,12 @@ class StreamHarvester:
             ),
             'progress_hooks': [ytdl_hooks],
             'noplaylist': True,
-            'forceipv4': True,
             'sleep_interval': 5,
             'max_sleep_interval': 30,
-            'nocontinue': True,
+            'continuedl': True,
             'nooverwrites': True,
-            'throttled_rate': '100K',
-            'concurrent_fragments': 5,
-            'audio_multistreams': True,
+            'throttledratelimit': 102400,
+            'allow_multiple_audio_streams': True,
             'js_runtimes': JS_RUNTIMES,
         }
         if self.sleep_requests > 0:
@@ -902,7 +993,6 @@ class StreamHarvester:
             options.update(
                 {
                     'quiet': False,
-                    'logger': YoutubeDLLogger(),
                     'progress_hooks': [ytdl_hooks_debug],
                 }
             )
@@ -935,6 +1025,8 @@ class StreamHarvester:
             with yt_dlp.YoutubeDL(options) as ydl:
                 ydl.download([url])
         except yt_dlp.utils.DownloadError as error:
+            if self.is_rate_limit_error(error):
+                raise
             # yt-dlp wraps subtitle transport errors in a plain DownloadError;
             # there is no dedicated subtitle exception type. Fail closed if
             # its diagnostic changes, or subtitle downloading was not enabled.
@@ -961,10 +1053,7 @@ class StreamHarvester:
     @staticmethod
     def is_rate_limit_error(error):
         """Return whether an error indicates rate limiting."""
-        message = str(error).lower()
-        return any(
-            marker in message for marker in ('rate-limited', 'rate limit', 'try again later')
-        )
+        return is_rate_limit_error(error)
 
     def handle_download_error(self, error, episode_number):
         """Log a download error and return whether the scan should stop."""
@@ -978,41 +1067,42 @@ class StreamHarvester:
 
         if self.is_rate_limit_error(error):
             self.rate_limit_count += 1
+            self.current_backoff = min(self.rate_limit_sleep, self.backoff_max)
             if self.backoff_enabled and self.rate_limit_count > 1:
-                self.current_backoff = min(
-                    int(
-                        self.rate_limit_sleep
-                        * (self.backoff_multiplier ** (self.rate_limit_count - 1))
-                    ),
-                    self.backoff_max,
-                )
-                logger.error(
-                    '      Failed - entry %d - RATE LIMITED (attempt %d)',
-                    episode_number,
-                    self.rate_limit_count,
-                )
-                logger.warning(
-                    '      Exponential backoff: Sleeping for %s seconds (%sm %ss)...',
-                    self.current_backoff,
-                    self.current_backoff // 60,
-                    self.current_backoff % 60,
-                )
-            else:
-                self.current_backoff = self.rate_limit_sleep
-                logger.error('      Failed - entry %d - RATE LIMITED', episode_number)
-                logger.warning(
-                    '      YouTube rate limit detected. Sleeping for %s seconds...',
-                    self.current_backoff,
-                )
+                try:
+                    self.current_backoff = min(
+                        int(
+                            self.rate_limit_sleep
+                            * (self.backoff_multiplier ** (self.rate_limit_count - 1))
+                        ),
+                        self.backoff_max,
+                    )
+                except OverflowError:
+                    self.current_backoff = self.backoff_max
+            logger.error(
+                '      Failed - entry %d - RATE LIMITED (attempt %d)',
+                episode_number,
+                self.rate_limit_count,
+            )
+            logger.warning(
+                '      Rate limit cooldown: sleeping for %s seconds', self.current_backoff
+            )
             time.sleep(self.current_backoff)
             logger.info('      Resuming downloads after rate limit cooldown')
         else:
-            logger.error('      Failed - entry %d - download error', episode_number)
+            logger.error(
+                '      Failed - entry %d - download error: %s',
+                episode_number,
+                redact_sensitive(str(error)),
+            )
         return False
 
     def download_episode(self, series, episode, episode_number):
         """Find and download one episode, returning whether the scan should stop."""
-        url = self.find_episode(series, episode)
+        try:
+            url = self.find_episode(series, episode)
+        except Exception as error:
+            return self.handle_download_error(error, episode_number)
         if url is None:
             logger.info('    %s: Missing - %s:', episode_number, episode['title'])
             return False
@@ -1021,17 +1111,22 @@ class StreamHarvester:
         options = self.download_options(series, episode)
         try:
             self.download_video(url, options, episode['title'])
-            self.rescanseries(series['id'])
         except Exception as error:
             return self.handle_download_error(error, episode_number)
-
+        try:
+            self.rescanseries(series['id'])
+        except Exception as error:
+            logger.warning(
+                '      Sonarr rescan failed after download: %s',
+                redact_sensitive(str(error)),
+            )
         logger.info('      Downloaded - %s', episode['title'])
         self.video_403_count = 0
-        if self.rate_limit_count > 0:
+        if getattr(self, 'rate_limit_count', 0) > 0:
             logger.info('      Rate limit recovered - resetting backoff counter')
             self.rate_limit_count = 0
             self.current_backoff = self.rate_limit_sleep
-        if self.download_delay > 0:
+        if getattr(self, 'download_delay', 0) > 0:
             logger.debug('      Waiting %s seconds before next download', self.download_delay)
             time.sleep(self.download_delay)
         return False
@@ -1044,11 +1139,13 @@ class StreamHarvester:
 
         episodes_by_series = collections.defaultdict(list)
         for episode in episodes:
-            episodes_by_series[episode['seriesId']].append(episode)
+            key = episode['seriesId'], episode.get('_source_id')
+            episodes_by_series[key].append(episode)
 
         logger.info('Processing Wanted Downloads')
         for current_series in series:
-            wanted = episodes_by_series.get(current_series['id'], [])
+            key = current_series['id'], current_series.get('_source_id')
+            wanted = episodes_by_series.get(key, [])
             if not wanted:
                 continue
             logger.info('  %s:', current_series['title'])
@@ -1057,29 +1154,68 @@ class StreamHarvester:
                     return
 
     def set_scan_interval(self, interval):
-        global SCANINTERVAL
-        if interval != SCANINTERVAL:
-            SCANINTERVAL = interval
-            logger.info('Scan interval set to every {} minutes by config.yml'.format(interval))
-        else:
-            logger.info('Default scan interval of every {} minutes in use'.format(interval))
-        return
+        interval = int(interval)
+        if interval <= 0:
+            raise ValueError('scan_interval must be positive')
+        try:
+            datetime.now() + timedelta(minutes=interval)
+        except OverflowError as error:
+            raise ValueError('scan_interval is too large') from error
+        return interval
 
 
-def main(playlist_cache=None):
+def main(playlist_cache=None, job=None, debug=False):
     """Run one scan of the configured series."""
-    client = StreamHarvester(playlist_cache)
-    series = client.filterseries()
-    client.start_scan(series)
     try:
-        episodes = client.getseriesepisodes(series)
-        client.download(series, episodes)
-    finally:
-        client.playlist_cache.end_scan()
+        client = StreamHarvester(playlist_cache, debug=debug)
+    except (SystemExit, KeyError, TypeError, ValueError, OSError, yaml.YAMLError) as error:
+        if job is None:
+            raise
+        if isinstance(error, yaml.YAMLError):
+            detail = getattr(error, 'problem', None) or 'invalid YAML'
+            mark = getattr(error, 'problem_mark', None)
+            if mark is not None:
+                detail = f'{detail} at line {mark.line + 1}, column {mark.column + 1}'
+        else:
+            detail = redact_sensitive(str(error))
+        logger.error(
+            'Skipping scheduled scan because configuration is invalid (%s): %s',
+            type(error).__name__,
+            detail,
+        )
+        return
+    if job is not None:
+        job.interval = int(SCANINTERVAL)
+    try:
+        series = client.filterseries()
+        client.start_scan(series)
+        try:
+            episodes = client.getseriesepisodes(series)
+            client.download(series, episodes)
+        finally:
+            client.playlist_cache.end_scan()
+    except requests.RequestException as error:
+        if job is None:
+            raise
+        logger.warning(
+            'Skipping scheduled scan because Sonarr request failed: %s',
+            redact_sensitive(str(error)),
+        )
+        return
+    except (KeyError, TypeError, ValueError, OverflowError, re.error) as error:
+        if job is None:
+            raise
+        logger.error(
+            'Skipping scheduled scan because configuration is invalid (%s): %s',
+            type(error).__name__,
+            redact_sensitive(str(error)),
+        )
+        return
     logger.info('Waiting...')
 
 
 if __name__ == '__main__':
+    args = parse_args()
     if os.geteuid() == 0:
         logger.warning(
             'Container is running as root (uid 0). A future release will '
@@ -1090,9 +1226,9 @@ if __name__ == '__main__':
         )
     logger.info('Initial run')
     with closing(PlaylistCache()) as playlist_cache:
-        main(playlist_cache)
+        main(playlist_cache, debug=args.debug)
         job = schedule.every(int(SCANINTERVAL)).minutes
-        job.do(main, playlist_cache)
+        job.do(main, playlist_cache, job=job, debug=args.debug)
         while True:
             schedule.run_pending()
             time.sleep(1)

@@ -23,6 +23,9 @@ import stream_harvestarr  # noqa: E402
 
 class FakeResponse(object):
 
+    def raise_for_status(self):
+        pass
+
     def json(self):
         return {}
 

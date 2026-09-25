@@ -9,7 +9,7 @@ from itertools import islice
 
 import yt_dlp
 from playlist_snapshot import PlaylistSnapshot
-from utils import redact_sensitive
+from utils import is_rate_limit_error, redact_sensitive
 
 logger = logging.getLogger('stream_harvestarr')
 
@@ -34,6 +34,11 @@ COLLECTION_URL_RE = re.compile(
     r'(?:/playlist\b|[?&]list=|/@[^/]+/|/channel/|/user/|/c/|/results\b|/search\b)', re.IGNORECASE
 )
 YOUTUBE_HOSTS = {'youtube.com', 'www.youtube.com', 'm.youtube.com'}
+TIKTOK_HOSTS = {'tiktok.com', 'www.tiktok.com', 'm.tiktok.com'}
+
+
+class PlaylistRateLimitError(RuntimeError):
+    """A playlist refresh was rejected by the source's rate limiter."""
 
 
 def is_single_video(entry):
@@ -44,6 +49,12 @@ def is_single_video(entry):
         return False
     url = entry.get('webpage_url') or entry.get('url') or ''
     if VIDEO_URL_RE.search(url):
+        return True
+    try:
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        parsed = None
+    if parsed and parsed.hostname in TIKTOK_HOSTS and re.search(r'/video/\d+', parsed.path):
         return True
     return not COLLECTION_URL_RE.search(url)
 
@@ -59,12 +70,9 @@ def video_playlist_url(playlist):
         return playlist
     if parsed.hostname not in YOUTUBE_HOSTS:
         return playlist
-    if parsed.query or parsed.fragment:
-        return playlist
-
     path = parsed.path.rstrip('/')
     if re.fullmatch(r'/(?:@[^/]+|channel/[^/]+|user/[^/]+|c/[^/]+)', path):
-        return parsed._replace(path=path + '/videos').geturl()
+        return parsed._replace(path=path + '/videos', query='', fragment='').geturl()
     return playlist
 
 
@@ -115,10 +123,12 @@ class PlaylistCache:
 
     entries: dict[CacheKey, PlaylistSnapshot] = field(default_factory=dict)
     refreshed: set[CacheKey] = field(default_factory=set)
+    used: set[CacheKey] = field(default_factory=set)
 
     def begin_scan(self, playlists=None):
         """Reset refresh tracking and remove sources no longer in the scan."""
         self.refreshed.clear()
+        self.used.clear()
         if playlists is not None:
             for key in list(self.entries):
                 if key[0] not in playlists:
@@ -126,7 +136,7 @@ class PlaylistCache:
 
     def end_scan(self):
         """Release unused credential variants and sources with no wanted episodes."""
-        for key in self.entries.keys() - self.refreshed:
+        for key in self.entries.keys() - self.used:
             self._discard(key)
 
     def close(self):
@@ -136,9 +146,14 @@ class PlaylistCache:
     def get(self, ydl_opts, playlist):
         """Return cached candidates, refreshing the source once when needed."""
         key = self._key(ydl_opts, playlist)
+        self.used.add(key)
         if key not in self.refreshed:
             self.refreshed.add(key)
-            fresh_entries = self._extract(ydl_opts, playlist)
+            try:
+                fresh_entries = self._extract(ydl_opts, playlist)
+            except PlaylistRateLimitError:
+                self.refreshed.discard(key)
+                raise
             if fresh_entries is not None:
                 previous = self.entries.get(key)
                 self.entries[key] = fresh_entries
@@ -160,7 +175,9 @@ class PlaylistCache:
 
     def discard(self, ydl_opts, playlist):
         """Release an episode-specific search snapshot and its refresh marker."""
-        self._discard(self._key(ydl_opts, playlist))
+        key = self._key(ydl_opts, playlist)
+        self.used.discard(key)
+        self._discard(key)
 
     def _discard(self, key):
         snapshot = self.entries.pop(key, None)
@@ -202,20 +219,27 @@ class PlaylistCache:
             with yt_dlp.YoutubeDL(options) as ydl:
                 entries = PlaylistCache._entries(ydl, url, options.get('playlistend'))
                 # Publish only after the entire result has been consumed.
-                return PlaylistSnapshot(
-                    (entry.get('title'), entry_url(entry))
-                    for entry in entries
-                    if isinstance(entry, dict) and entry_url(entry) and is_single_video(entry)
-                )
+                return PlaylistSnapshot(PlaylistCache._snapshot_entries(entries))
         # yt-dlp exposes several extractor-specific failure types. Keep this
         # boundary broad so one failed refresh cannot destroy a good snapshot.
         except Exception as error:  # noqa: BLE001
+            if is_rate_limit_error(error):
+                raise PlaylistRateLimitError(str(error)) from error
             logger.error(
                 'Playlist extraction failed for %s: %s',
                 redact_sensitive(playlist),
                 redact_sensitive(str(error)),
             )
             return None
+
+    @staticmethod
+    def _snapshot_entries(entries):
+        """Yield the small metadata subset needed for local matching."""
+        for entry in entries:
+            url = entry_url(entry) if isinstance(entry, dict) else None
+            if not url or not is_single_video(entry):
+                continue
+            yield entry.get('title'), url
 
     @staticmethod
     def _entries(ydl, url: str, limit: int | None) -> Iterator[dict]:

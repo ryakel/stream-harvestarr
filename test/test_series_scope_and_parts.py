@@ -175,8 +175,9 @@ class TestCompileRequire(unittest.TestCase):
     def test_absent_is_none(self):
         self.assertIsNone(stream_harvestarr.compile_require(None, 'S'))
 
-    def test_invalid_pattern_is_ignored_not_raised(self):
-        self.assertIsNone(stream_harvestarr.compile_require('([unclosed', 'S'))
+    def test_invalid_pattern_is_rejected(self):
+        with self.assertRaises(ValueError):
+            stream_harvestarr.compile_require('([unclosed', 'S')
 
     def test_compiles_case_insensitive(self):
         self.assertTrue(stream_harvestarr.compile_require('epicly', 'S').search('EPICLY'))
@@ -191,18 +192,45 @@ class TestFilterseriesWiring(unittest.TestCase):
         harvester.services = {}
         harvester.get_series = lambda: [{
             'title': 'Some Series', 'id': 1, 'monitored': True, 'path': '/tv/some'}]
-        return stream_harvestarr.StreamHarvester.filterseries(harvester)[0]
+        return stream_harvestarr.StreamHarvester.filterseries(harvester)
 
     def test_require_is_compiled_onto_the_series(self):
-        ser = self.filterseries({'require': "Epicly Later"})
+        ser = self.filterseries({'require': "Epicly Later"})[0]
         self.assertTrue(ser['site_require'].search("x | Epicly Later'd"))
 
-    def test_invalid_require_stores_none(self):
-        self.assertIsNone(self.filterseries({'require': '([unclosed'})['site_require'])
+    def test_invalid_require_skips_the_series(self):
+        self.assertEqual(self.filterseries({'require': '([unclosed'}), [])
+
+    def test_invalid_regex_skips_only_affected_series(self):
+        invalid_regexes = (
+            ('Bad require', {'require': '([unclosed'}),
+            ('Bad site replacement', {'site': {
+                'match': 'episode', 'replace': r'\g<missing>'}}),
+            ('Bad Sonarr replacement', {'sonarr': {
+                'match': 'episode', 'replace': r'\g<missing>'}}),
+        )
+        harvester = stream_harvestarr.StreamHarvester.__new__(
+            stream_harvestarr.StreamHarvester)
+        harvester.series = [
+            {'title': title, 'url': 'https://x/', 'regex': regex}
+            for title, regex in invalid_regexes
+        ] + [{'title': 'Healthy', 'url': 'https://x/'}]
+        harvester.services = {}
+        harvester.get_series = lambda: [
+            {'title': title, 'id': index, 'monitored': True, 'path': '/tv'}
+            for index, (title, _) in enumerate(invalid_regexes, start=1)
+        ] + [{'title': 'Healthy', 'id': 4, 'monitored': True, 'path': '/tv'}]
+
+        with self.assertLogs('stream_harvestarr', level='ERROR') as logs:
+            matched = stream_harvestarr.StreamHarvester.filterseries(harvester)
+
+        self.assertEqual([series['title'] for series in matched], ['Healthy'])
+        for title, _ in invalid_regexes:
+            self.assertIn(f'Skipping series "{title}"', '\n'.join(logs.output))
 
     def test_absent_require_leaves_the_key_off(self):
         self.assertIsNone(self.filterseries(
-            {'sonarr': {'match': 'x', 'replace': ''}}).get('site_require'))
+            {'sonarr': {'match': 'x', 'replace': ''}})[0].get('site_require'))
 
 
 if __name__ == '__main__':

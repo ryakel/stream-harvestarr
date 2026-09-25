@@ -61,8 +61,11 @@ Playlist extraction fails closed when yt-dlp reports incomplete YouTube data, so
 a partial continuation cannot replace a previously complete snapshot. Failed
 refreshes keep the last complete snapshot and are logged for diagnosis.
 
-Only playlist snapshots are shared between scans; removed sources and unused
-credential variants are released.
+Configuration and Sonarr naming settings are read before each scan. Only playlist
+snapshots are shared between scans; removed sources and unused credential variants
+are released. Invalid configuration stops the scan without partially updating an
+existing client. A failed Sonarr rescan request is logged separately from a
+successful video download, and subsequent episodes continue.
 
 **For detailed documentation, configuration guides, and troubleshooting, visit the [Stream Harvestarr Wiki](https://github.com/ryakel/stream-harvestarr/wiki)**
 
